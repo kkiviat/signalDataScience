@@ -1,0 +1,574 @@
+* Getting data
+** Simulated data
+First we'll write some functions to generate simulated data.
+
+This one will return an (x, y) point chosen uniformly from above (below) the line $y=mx+b$ if label is set to 1 (-1)
+#+BEGIN_SRC R :session :results output :exports code
+  lin_pair = function(m, b, label) {
+      if (m >= 0 && b > 1 && label == 1) return(NA)
+      if (m <= 0 && b < 0 && label == -1) return(NA)
+      while (TRUE) {
+          x = runif(1)
+          y = runif(1)
+          if (label*y >= label*(m*x+b)) return(c(x, y)) ## flip the inequality when label = -1
+      }
+  }
+#+END_SRC
+
+Let's verify that this looks like a uniform distribution.
+#+BEGIN_SRC R :session :file images/R14294xpK.png :results output graphics :exports both
+  library(ggplot2)
+  m = 2
+  b = -0.3
+  x = seq(0, 1, 0.1)
+  y = m*x + b
+  points = sapply(1:1000, function(i) lin_pair(m, b, -1))
+  ggplot() + geom_point(aes(points[1,], points[2,])) + geom_line(aes(x,y)) + xlab("x") + ylab("y")
+   
+#+END_SRC
+
+We'll do the same for points falling above or below a quadratic curve $y = a(x-b)^2 + c$. Note that this will run forever if the specified region has 0 area.
+#+BEGIN_SRC R :session :results output :exports both
+  quad_pair = function(a, b, c, label) {
+      while (TRUE) {
+          x = runif(1)
+          y = runif(1)
+          if (label*y >= label*(a*(x-b)^2 + c)) return(c(x, y))
+      }
+  }
+#+END_SRC
+
+Let's verify that this looks like a uniform distribution.
+#+BEGIN_SRC R :session :file images/R14294lSj.png :results output graphics :exports both
+  a = 2
+  b = 0.5
+  c = 0.1
+  x = seq(0, 1, 0.1)
+  y = a*(x-b)^2 + c
+  points = sapply(1:1000, function(i) quad_pair(a, b, c, 1))
+  ggplot() + geom_point(aes(points[1,], points[2,])) + geom_smooth(aes(x,y)) + xlab("x") + ylab("y") + ylim(c(0,1))
+   
+#+END_SRC
+
+** Iris data
+We'll also load the iris dataset, and plot each pairing of variables, colored by species, to see how separable the species are.
+#+BEGIN_SRC R :session :file images/R14294_mv.png :results output graphics :exports both
+  library(Rmisc)
+
+  ## get the data
+  df_iris = iris
+  df_iris_scaled = df_iris
+  df_iris_scaled[,-5] = scale(df_iris[,-5])
+
+  ## returns a list of all pairs of elements of a
+  get_pairs = function(a) {
+      pairs = vector(mode="list", length=choose(length(a), 2))
+      index = 1
+      for (i in 1:(length(a)-1)) {
+          for (j in (i+1):length(a)) {
+              pairs[[index]] = c(a[i], a[j])
+              index = index + 1
+          }
+      }
+      return(pairs)
+  }
+
+  ## get all pairs of variables
+  pairs = get_pairs(colnames(df_iris)[-5])
+
+  ## utility function to generate plots for each pair of variables
+  get_iris_plot_from_pairs = function(pair) {
+      x = df_iris_scaled[,pair[[1]]]
+      y = df_iris_scaled[,pair[[2]]]
+      ggplot(df_iris_scaled) +
+          geom_point(aes(x, y, color=Species)) +
+          xlab(pair[[1]]) + ylab(pair[[2]])
+  }
+
+  plots = lapply(pairs, get_iris_plot_from_pairs)
+  multiplot(plotlist=plots, cols=2)
+#+END_SRC
+
+In all cases, setosa seems easy to separate from the others. In sepal width vs sepal length, though, versicolor and virginica are very mixed. They seem fairly separable on the others, though.
+
+** Wine data
+Finally, we'll get data on chemical analyses of wine. We can look at the means of each predictor variable for each cultivar.
+#+BEGIN_SRC R :session :results output :exports both
+  wine = read.csv("../datasets/wine-cultivars/wine.data")
+
+  aggregate(. ~ Type, FUN=mean, data=wine)
+#+END_SRC
+
+* Discriminant analysis
+Discriminant analysis, both linear and quadratic, assumes that the classes are generated from multivariate normal distributions. 
+** Simulated data analysis
+First we'll generate 200 points, 100 above the line $y = 0.75x + 0.05$ and 100 below the lines $y = 0.75 - 0.1$, with labels identifying the first 100 as class 1 and the second as class -1.
+#+BEGIN_SRC R :session :file images/R14294yqR.png :results output graphics :exports both
+  set.seed(1)
+  points = sapply(1:100, function(i) lin_pair(0.75, 0.05, 1))
+  df_linear = data.frame(x=points[1,], y=points[2,], label=1)
+
+  points = sapply(1:100, function(i) lin_pair(0.75, -0.1, -1))
+  df_linear = rbind(df_linear, data.frame(x=points[1,], y=points[2,], label=-1))
+
+  x = range(0, 1, 0.01)
+  ggplot(df_linear) + geom_point(aes(x, y, color=label)) +
+      theme(legend.position="none") +
+      geom_line(aes(x, 0.75*x+0.05), color="red") +
+      geom_line(aes(x, 0.75*x-0.1))
+#+END_SRC
+
+#+BEGIN_SRC R :session :file images/R14294M_d.png :results output graphics :exports both
+  set.seed(1)
+  points = sapply(1:100, function(i) quad_pair(4, 0.5, 0.4, 1))
+  df_quad = data.frame(x=points[1,], y=points[2,], label=1)
+
+  points = sapply(1:100, function(i) quad_pair(4, 0.5, 0.38, -1))
+  df_quad = rbind(df_quad, data.frame(x=points[1,], y=points[2,], label=-1))
+
+  x = seq(0, 1, 0.01)
+  ggplot(df_quad) + geom_point(aes(x, y, color=label)) +
+      theme(legend.position="none") +
+      geom_smooth(aes(x, 4*(x-0.5)^2+0.4), color="red") +
+      geom_smooth(aes(x, 4*(x-0.5)^2+0.38)) +
+      ylim(c(0,1))
+#+END_SRC
+
+Let's run LDA on the linear data (with =partimat= to graph the result).
+#+BEGIN_SRC R :session :file images/R14294mTq.png :results output graphics :exports both
+  library(klaR)
+  partimat(df_linear[c("x", "y")], as.factor(df_linear$label), method="lda")
+#+END_SRC
+
+This seems to have done a good job separating the data, although for some reason not a perfect job (error rate of 0.01). It seems to have put the boundary right at the edge of one of the groups, so that a couple of points were in fact on the wrong side.
+
+Now we'll use QDA on the quadratic data.
+#+BEGIN_SRC R :session :file images/R14294Ao2.png :results output graphics :exports both
+  partimat(df_quad[c("x", "y")], as.factor(df_quad$label), method="qda")
+#+END_SRC
+
+This one did worse, with 16 points being misclassified. It seems to have made the quadratic separator too short and wide.
+
+** Multiclass classification
+Now we'll use LDA to try to classify the three cultivars from the wine data set. LDA creates discriminator functions for each class, such that a positive score indicates membership in the class, while negative indicates non-membership. LDA will create k-1 discriminant functions for k classes (since the last one is indicated by non-membership in any of the others).
+#+BEGIN_SRC R :session :results output :exports code
+  wine_scaled = wine
+  wine_scaled[-1] = scale(wine[-1])
+  wine_lda = lda(Type ~ ., data=wine_scaled)
+  wine_predictions = predict(wine_lda)
+#+END_SRC
+
+We can look at a histogram of the scores on the first discriminator.
+#+BEGIN_SRC R :session :file images/R14294_7L.png :results output graphics :exports both
+  ldahist(wine_predictions$x[,1], wine$Type)
+#+END_SRC
+
+And on the second
+#+BEGIN_SRC R :session :file images/R14294ZQY.png :results output graphics :exports both
+  ldahist(wine_predictions$x[,2], wine$Type)
+#+END_SRC
+
+The first one seems to have clearly distinct distributions for each of the three groups. For the second discriminant, though, it seems groups 1 and 3 have very similar distributions of scores. I guess the second discriminant distinguishes between 2 and (1 and 3), while the first discriminant distinguishes between 1 and 3, with 2 being split between positive and negative.
+
+Now let's look at a plot of the two discrimination functions against each other.
+#+BEGIN_SRC R :session :file images/R14294zkk.png :results output graphics :exports both
+  cultivar = as.factor(wine$Type)
+  ggplot() + geom_point(aes(wine_predictions$x[,1], wine_predictions$x[,2], color=cultivar)) +
+      xlab("discriminant 1") + ylab("discriminant 2") +
+      labs(legend.title = "cultivar")
+#+END_SRC
+
+It's easier to see what's going on here. Cultivars 1 and 3 are basically the same on the discriminant 2 axis, but they are clearly distinct on the discriminant 1 axis.
+
+* Perceptrons
+** Generating data
+We'll generate 1000 data points above the line $1.5x + 0.2$ and 100 data points below the line $1.5x+0.05$.
+#+BEGIN_SRC R :session :file images/R13433zfR.png :results output graphics :exports both
+  set.seed(1)
+  points = sapply(1:1000, function(i) lin_pair(1.5, 0.2, 1))
+  perceptron_data = t(points)
+
+  points = sapply(1:1000, function(i) lin_pair(1.5, 0.05, -1))
+  perceptron_data = rbind(perceptron_data, t(points))
+
+  labels = c(rep(1, 1000), rep(-1, 1000))
+
+  ## augment it for the perceptron
+  perceptron_data_plus = cbind(perceptron_data, 1)
+
+  qplot(perceptron_data[,1], perceptron_data[,2], color=as.factor(labels)) + theme(legend.position="none")
+#+END_SRC
+
+** Implementing a perceptron
+First we'll need to be able to take dot products of vectors. Note: don't use Reduce and mapply; it's way too slow!
+#+BEGIN_SRC R :session :results output :exports code
+  dot = function(x, y) sum(x*y)
+#+END_SRC
+
+Here we'll implement a simple perceptron. It augments the data matrix with a column of 1's, then iterates over the rows in a random order. For each row, it computes its dot product with the weight vector, and takes the sign of this product as the class. If this yields a false positive, it updates w by subtracting the row times the rate from w. If it yields a false negative, it adds the row times the rate to w.
+#+BEGIN_SRC R :session :results output :exports code
+  perceptron = function(xs, y, w, rate, seed) {
+      set.seed(seed)
+      ## augment the matrix
+      #xs = cbind(xs, 1)
+      ## go through the rows in a random order
+      for (row in sample(nrow(xs))) {
+          x = xs[row,]
+          label = y[row]
+          ## if misclassified, update the weights in the appropriate direction
+          if (sign(dot(x, w)) != label) {
+              w = w + label*rate*x
+          }
+      }
+      return(w)
+  }
+#+END_SRC
+
+The perceptron will find a line such that all the label +1 points are on one side of it, and all the label -1 points are on the other side. The line is represented by the weight vector w with =w[1]*x + w[2]*y = 0=. Hence this line has slope =-w[1]/w[2]= and intercept =-w[3]/w[2]=.
+#+BEGIN_SRC R :session :results output :exports code
+  perceptron_plot = function(xs, y, w, title) {
+      slope = -w[1]/w[2]
+      intercept = -w[3]/w[2]
+      qplot(xs[,1], xs[,2], color=as.factor(y)) +
+          geom_abline(intercept=intercept, slope=slope) +
+          theme(legend.position="none") +
+          xlab("x") + ylab("y") +
+          ggtitle(title)
+  }
+#+END_SRC
+
+We will run the perceptron step until w is no longer changed. This only happens when we have found a separating line. Then we will plot this line along with the data points.
+#+BEGIN_SRC R :session :file images/R13433nIq.png :results output graphics :exports both
+  rate = 1
+  seed = 2
+  w = rep(0, 3)
+  old_w = rep(-1,3)
+
+  plots = list()
+  iteration = 0
+
+  while(any(w != old_w)) {
+      iteration = iteration + 1
+      old_w = w
+      w = perceptron(perceptron_data_plus, labels, w, rate, seed)
+      print(w)
+      plots[[iteration]] = perceptron_plot(perceptron_data_plus, labels, w, paste0("Iteration = ", iteration))
+  }
+  multiplot(plotlist = plots, cols=1)
+
+#+END_SRC
+
+** Analyze convergence
+This function will run perceptron until convergence, as we did above.
+#+BEGIN_SRC R :session :results output :exports code
+  perceptron_conv = function(xs, y, rate, seed) {
+      w = rep(0,3)
+      old_w = rep(1,3)
+      while(any(w != old_w)) {
+          old_w = w
+          w = perceptron(xs, y, w, rate, seed)
+          print(w)
+      }
+      return(w)
+  }
+#+END_SRC
+
+And this version will return the number of iterations it took.
+#+BEGIN_SRC R :session :results output :exports code
+  perceptron_conv_iteration = function(xs, y, rate, seed) {
+      w = rep(0,3)
+      old_w = rep(1,3)
+      iteration=0
+      while(any(w != old_w)) {
+          iteration = iteration + 1
+          old_w = w
+          w = perceptron(xs, y, w, rate, seed)
+      }
+      return(iteration)
+  }
+#+END_SRC
+
+Let's compare the boundary we get, starting with different seeds.
+#+BEGIN_SRC R :session :file images/R13433Bd2.png :results output graphics :exports both
+  plots = lapply(1:10, function(s) {
+      w = perceptron_conv(perceptron_data_plus, labels, rate=1, seed=s)
+      perceptron_plot(perceptron_data_plus, labels, w, paste0("seed = ", s))
+      })
+  multiplot(plotlist=plots, cols=2)
+#+END_SRC
+
+Let's try the same comparison with a much smaller dataset.
+#+BEGIN_SRC R :session :file images/R13433AxL.png :results output graphics :exports both
+  set.seed(2)
+  points = sapply(1:10, function(i) lin_pair(1.5, 0.2, 1))
+  perceptron_data_small = t(points)
+
+  points = sapply(1:10, function(i) lin_pair(1.5, 0.05, -1))
+  perceptron_data_small = rbind(perceptron_data_small, t(points))
+
+  labels_small = c(rep(1, 10), rep(-1, 10))
+  perceptron_data_small_plus = cbind(perceptron_data_small, 1)
+
+  plots = lapply(1:10, function(s) {
+      w = perceptron_conv(perceptron_data_small_plus, labels_small, rate=1, seed=s)
+      perceptron_plot(perceptron_data_small_plus, labels_small, w, paste0("seed = ", s))
+      })
+  multiplot(plotlist=plots, cols=2)
+#+END_SRC
+
+There appears to be slightly more variation in the separating lines for this smaller data set.
+
+Finally, let's compare how long it typically takes to converge.
+#+BEGIN_SRC R :session :results output :exports both
+  iteration_counts = sapply(1:100, function(s) perceptron_conv_iteration(perceptron_data_plus, labels, rate=1, seed=s))
+  summary(iteration_counts)
+#+END_SRC
+
+Let's see how this varies with the rate value, first for the large dataset:
+#+BEGIN_SRC R :session :results output :exports both
+  get_perceptron_iteration_stats = function(xs, y, rate, trials) {
+      sapply(1:trials, function(s) perceptron_conv_iteration(xs=xs, y=y, rate=rate, seed=s))
+  }
+
+  iteration_stats = lapply(10^seq(-1, 2, length.out=20), function(rate) get_perceptron_iteration_stats(perceptron_data_plus, labels, rate, 100))
+  sapply(iteration_stats, mean)
+#+END_SRC
+
+Now for the small dataset:
+#+BEGIN_SRC R :session :results output :exports both
+  iteration_stats_small = lapply(10^seq(-1, 2, length.out=20), function(rate) get_perceptron_iteration_stats(perceptron_data_small_plus, labels_small, rate, 100))
+  sapply(iteration_stats_small, mean)
+#+END_SRC
+
+These are all the same, because the rate doesn't influence the number of iterations required (since we are starting with all-zero weights). After the first update of w, it is equal to the rate times the first row. This line is in the same direction, regardless of the rate. Hence each subsequent update will modify it by the same vector, just scaled by the rate. The final weight vector divided by the rate will be the same for every rate, meaning the final line is the same, and the number of iterations is the same.
+
+For completeness of the assignment, here are the results from timing, rather than counting iterations.
+#+BEGIN_SRC R :session :file images/R134330gY.png :results output graphics :exports both
+  perceptron_time = function(xs, y, rate) {
+    seeds = 1:100
+    tot_time = 0
+    for (s in seeds) {
+      tic()
+      w = perceptron_conv(xs, y, rate, s)
+      t = toc(quiet=TRUE)
+      tot_time = tot_time + t$toc - t$tic
+    }
+    tot_time / length(seeds)
+  }
+
+  library(tictoc)
+
+  rates = 10^seq(-1, 2, length.out=20)
+  times = rep(0, length(rates))
+  times_small = rep(0, length(rates))
+  for (i in seq_along(rates)) {
+    times[i] = perceptron_time(perceptron_data_plus, labels, rates[i])
+    times_small[i] = perceptron_time(perceptron_data_small_plus, labels_small, rates[i])
+  }
+
+  multiplot(qplot(rates, times), qplot(rates, times_small))
+#+END_SRC
+
+Finally, let's verify that the algorithm doesn't converge on non-linearly-separable datasets. We'll use quad_pair to create two overlapping sets.
+#+BEGIN_SRC R :session :file images/R134330nM.png :results output graphics :exports both
+  set.seed(1)
+  points = sapply(1:1000, function(i) quad_pair(1, 0, 0, 1))
+  nonseparable_data = t(points)
+
+  points = sapply(1:1000, function(i) quad_pair(1, 1, 0, -1))
+  nonseparable_data = rbind(nonseparable_data, t(points))
+
+  nonseparable_labels = c(rep(1, 1000), rep(-1, 1000))
+
+  ## augment it for the perceptron
+  nonseparable_data_plus = cbind(nonseparable_data, 1)
+
+  qplot(nonseparable_data[,1], nonseparable_data[,2], color=as.factor(nonseparable_labels)) + theme(legend.position="none")
+#+END_SRC
+
+Now we'll call perceptron lots of times and see that it still hasn't converged.
+#+BEGIN_SRC R :session :results output :exports both
+  rate = 1
+  seed = 1
+  w = rep(0, ncol(nonseparable_data_plus))
+  w_old = NULL
+  iterations = 1000
+  for (i in 1:iterations) {
+      if (identical(w, w_old)) {
+          cat("Finished with ", i-1, " iterations\n")
+          break
+      }
+      w = perceptron(nonseparable_data_plus, nonseparable_labels, w, rate, seed)
+  }
+  cat("done\n")
+#+END_SRC
+
+Let's also look at the iris data. We know that versicolor and virginica are not linearly separable on sepal width vs sepal length. Let's try =perceptron_conv= on them, even though it will loop forever.
+#+BEGIN_SRC R :session :file images/R13433O8Y.png :results output graphics :exports both
+  library(dplyr)
+  rate = 1
+  seed = 1
+  nonsep_iris = cbind(filter(df_iris, Species %in% c("virginica", "versicolor")), 1)
+  iris_labels = ifelse(nonsep_iris$Species == "virginica", 1, -1)
+  w = perceptron_conv(select(nonsep_iris, Sepal.Length, Sepal.Width), iris_labels, rate, seed)
+
+
+  df_iris_nonsep = filter(df_iris, Species != "setosa")
+  df_species = select(df_iris_nonsep, starts_with("Sepal"))
+  df_species = cbind(df_species, rep(1, nrow(df_species)))
+  lbl_species = as.numeric(df_iris_nonsep$Species) - 2
+  w = perceptron_conv(df_species, lbl_species, 1, 1)
+#+END_SRC
+
+* Support vector machines
+** Introduction
+Support vector machines work by looking for the /maximum-margin hyperplane/ separating the classes. It finds the two separating hyperplanes that are maximally far apart, and takes a hyperplane in the middle of them.
+
+** Linear kernel
+*** Simulated data
+First let's prepare some data for the SVM. This time we don't need the column of 1's, and we can turn the labels into a factor.
+#+BEGIN_SRC R :session :results output :exports both
+  svm_data = data.frame(perceptron_data)
+  colnames(svm_data)=c("x", "y")
+  svm_data$label = as.factor(labels)
+#+END_SRC
+
+#+BEGIN_SRC R :session :file images/R13433oQl.png :results output graphics :exports both
+  library(e1071)
+  svm_fit = svm(label ~ ., data=svm_data, kernel="linear")
+  plot(svm_fit, svm_data)
+#+END_SRC
+
+The points marked with X's are the support vectors it is using to define the hyperplanes. This looks better than the LDA division, with the line not being so close to one side. 
+
+The cost parameter specifies the cost for misclassifying a point (scaled by how far the point is from the boundary). This allows the algorithm to handle noisy data, and be more robust to outliers. Let's see how the fit varies with different cost values.
+#+BEGIN_SRC R :session :file images/R13433Clx.png :results output graphics :exports both
+  svm_fit = svm(label ~ ., data=svm_data, kernel="linear", cost=0.1)
+  plot(svm_fit, svm_data)
+#+END_SRC
+
+#+BEGIN_SRC R :session :file images/R13433OKB.png :results output graphics :exports both
+  svm_fit = svm(label ~ ., data=svm_data, kernel="linear", cost=1000)
+  plot(svm_fit, svm_data)
+#+END_SRC
+
+As the cost increases, fewer points are used as support vectors and the boundary gets closer to one side.
+
+*** Wine data
+I looked at some plots of pairs of variables to find some that were roughly linearly separable. Here are the svm results from some of these pairs.
+#+BEGIN_SRC R :session :file images/R13433CzZ.png :results output graphics :exports both
+  svm_wine = select(wine, Type, Color, Flavanoids)
+  svm_wine$Type = as.factor(svm_wine$Type)
+  svm_wine_fit = svm(Type ~ ., data=svm_wine, kernel="linear")
+  plot(svm_wine_fit, svm_wine)
+#+END_SRC
+
+#+BEGIN_SRC R :session :file images/R13433cHm.png :results output graphics :exports both
+  svm_wine = select(wine, Type, Alcohol, Dilution)
+  svm_wine$Type = as.factor(svm_wine$Type)
+  svm_wine_fit = svm(Type ~ ., data=svm_wine, kernel="linear")
+  plot(svm_wine_fit, svm_wine)
+  #qplot(x=Alcohol, y=Dilution, data=wine, color=as.factor(Type))
+#+END_SRC
+
+*** Iris data
+#+BEGIN_SRC R :session :file images/R134332by.png :results output graphics :exports both
+  svm_iris = select(df_iris, Species, Petal.Width, Sepal.Length)
+  svm_iris_fit = svm(Species ~ ., data=svm_iris, kernel="linear")
+  plot(svm_iris_fit, svm_iris)
+#+END_SRC
+
+** Nonlinear kernels
+*** linearly separable data
+Here's the linearly separable data with a radial kernel, trying different costs and $\gamma$ values.
+
+- cost = 1, $\gamma = 0.5$
+#+BEGIN_SRC R :session :file images/R134331vH.png :results output graphics :exports both
+  svm_data = df_linear
+  svm_data$label = as.factor(svm_data$label)
+  svm_linear_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost = 2, gamma=0.5)
+  plot(svm_linear_fit, svm_data)
+#+END_SRC
+
+- cost = 100, $\gamma = 0.5$
+#+BEGIN_SRC R :session :file images/R13433pYg.png :results output graphics :exports both
+  svm_linear_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost=100, gamma=0.5)
+  plot(svm_linear_fit, svm_data)
+#+END_SRC
+
+- cost = 1, $\gamma = 10$
+#+BEGIN_SRC R :session :file images/R13433Dts.png :results output graphics :exports both
+  svm_linear_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost=1, gamma=10)
+  plot(svm_linear_fit, svm_data)
+#+END_SRC
+
+Changing cost doesn't seem to matter much, although a cost around 2 yielded the most appropriately linear boundary. Increasing $\gamma$, however, in $e^{-\gamma\vert u-v\vert^2}$, makes the boundary less linear, which clearly we don't want when the data are actually linearly separable.
+
+*** quadratically separable data
+- cost = 1, $\gamma = 0.5$
+#+BEGIN_SRC R :session :file images/R13433pmI.png :results output graphics :exports both
+  svm_data = df_quad
+  svm_data$label = as.factor(svm_data$label)
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost=1, gamma=0.5)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+- cost = 0.1, $\gamma = 0.5$
+#+BEGIN_SRC R :session :file images/R13433D7U.png :results output graphics :exports both
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost = 0.1, gamma=0.5)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+- cost = 1, $\gamma = 1$
+#+BEGIN_SRC R :session :file images/R13433dPh.png :results output graphics :exports both
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost=1, gamma=1)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+- C = 1, $\gamma = 5$
+#+BEGIN_SRC R :session :file images/R134333jt.png :results output graphics :exports both
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost=1, gamma=5)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+A cost around 1 generally seems to strike the best balance between correctly classifying that data and keeping the shape smooth. Increasing $\gamma$ makes the shape of the boundary less smooth, which makes it a worse model of the actual quadratic boundary.
+
+*** sample size
+Let's see how the results vary with sample size.
+#+BEGIN_SRC R :session :file images/R1343323C.png :results output graphics :exports both
+  svm_data = df_quad[c(1:20, 101:121),]
+  svm_data$label = as.factor(svm_data$label)
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="radial",
+                       cost=1, gamma=8)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+For this very small sample, $\gamma$ has to be about 8 before it correctly classifies all the points with cost=1. For smaller $\gamma$, a larger cost can enforce the classification, but the shape gets even weirder.
+
+*** Polynomial and sigmoid
+Here's the polynomial kernel.
+#+BEGIN_SRC R :session :file images/R13433QMP.png :results output graphics :exports both
+  svm_data = df_quad
+  svm_data$label = as.factor(svm_data$label)
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="polynomial",
+                       cost=1, gamma=0.5, coef0=1, degree=2)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+Setting a linear coefficient of 1, degree 2, cost 1 and $\gamma$ 0.5 yields a pretty good boundary. Increasing the degree only leads to overfitting.
+
+And sigmoid.
+#+BEGIN_SRC R :session :file images/R13433qgb.png :results output graphics :exports both
+  svm_quad_fit = svm(label ~ ., data=svm_data, kernel="sigmoid",
+                       cost=10, gamma=0.3, coef0=0)
+  plot(svm_quad_fit, svm_data)
+#+END_SRC
+
+No amount of fiddling with the parameters has yielded anything like a good fit for the logistic kernel.

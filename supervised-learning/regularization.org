@@ -1,0 +1,200 @@
+* Computational exercise
+#+BEGIN_SRC R :session :results output :exports both
+  set.seed(1); j = 50; a = 0.25
+  x = rnorm(j)
+  error = sqrt(1 - a^2)*rnorm(j)
+  y = a*x + error
+
+  summary(lm(y ~ x - 1)) # should get 0.2231
+#+END_SRC
+
+Implement a cost function with L^1 or L^2 regularization (sum of squared errors plus regularization term)
+#+BEGIN_SRC R :session :results output :exports both
+  library(glmnet)
+  cost = function(x, y, aEst, lambda, p) {
+      return(sum((y-aEst*x)^2) + lambda*abs(aEst)^p)
+      
+  }
+
+  cost(1,2,3,4,2) # should be 37
+#+END_SRC
+
+Create grid of lambda and aEst values, and compute L^1 and L^2 cost for previously defined x, y for each pair of lambda, aEst
+#+BEGIN_SRC R :session :results output :exports both
+  lambda_vec = 2^(-2:7)#sapply(-2:7, function(x) 2^x)
+  aEst_vec = seq(-0.1, 0.3, 0.001)
+
+  grid = expand.grid(lambda_vec, aEst_vec)
+  colnames(grid) = c("lambda", "aEst")
+  grid$costL1 = mapply(function(l, a) cost(x, y, a, l, 1), grid$lambda, grid$aEst)
+  grid$costL2 = mapply(function(l, a) cost(x, y, a, l, 2), grid$lambda, grid$aEst)
+#+END_SRC
+
+Function to return qplot showing L^p cost function vs aEst for specified lambda, p
+#+BEGIN_SRC R :session :results output :exports both
+  library(dplyr)
+  library(ggplot2)
+  library(Rmisc)
+  get_plot = function(lambda, p, grid) { # recall, using grid['lambda'] returns a dataframe, grid$lambda or grid[,'lambda'] returns a vector
+      cost_type = paste0('costL', p)
+      aEsts = grid[grid$lambda == lambda, 'aEst']
+      costs = grid[grid$lambda == lambda, cost_type]
+      return(qplot(aEsts, costs) + ggtitle(paste0("lambda = ", lambda)))
+  }
+
+  plotsL1 = lapply(lambda_vec, function(l) get_plot(l, 1, grid))
+  plotsL2 = lapply(lambda_vec, function(l) get_plot(l, 2, grid))
+#+END_SRC
+
+Plots for L1
+#+BEGIN_SRC R :session :file images/R26958Stv.png  :results output graphics :exports both
+  multiplot(plotlist=plotsL1, cols=2)
+#+END_SRC
+
+Plots for L2
+#+BEGIN_SRC R :session :file images/R269584fX.png  :results output graphics :exports both
+  multiplot(plotlist=plotsL2, cols=2)
+#+END_SRC
+
+By the time lambda reaches 4, the L1 cost function is minimized at 0. The minimum for the L2 cost function also approaches 0 as lambda increases, but it still seems to be slightly above 0 at lambda=128.
+
+* Theory
+Why does the L^1 norm drive the coefficient estimate to 0 while the L^2 norm does not?
+
+** L^2
+The cost function is $c(\beta) = S(\beta) + \lambda\beta^2$, where $S(\beta)$ is the sum of squared errors with coefficient $\beta$. It is minimized when $c'(\beta) = S'(\beta) + 2\lambda\beta = 0$. For this to be minimized at $\beta = 0$, we would have to have $S'(\beta) = 0$. But $S(\beta)$ is a smooth quadratic, so if $S'(\beta)$ is minimized at 0 then so is $S(\beta)$. I.e., x and y are totally uncorrelated (can't reduce SSE beyond using constant estimate).
+
+** L^1
+The cost function is $c(\beta) = S(\beta) + \lambda\vert \beta \vert$, with derivative $S'(\beta) + \lambda\frac{\vert \beta \vert}{\beta}$. $S'(\beta) = a\beta + b$ for some $a$ and $b$, since $S(\beta$ is quadratic. Hence we have a minimum if $a\beta + b + \lambda\frac{\vert\beta\vert}{\beta} = 0$ for $\beta \neq 0$. If $\lambda > \vert b\vert$ then this has no solution. Hence the only possible location for the global minimum is at $\beta = 0$. This is why L^1 regularization pushes estimates to 0 as $\lambda$ gets large.
+#+BEGIN_SRC R :session :file images/R269585ge.png  :results output graphics :exports both
+  x = seq(-10, 10, 0.1);
+  f = 3*(x-3)^2 + 5
+  # f' = a*x + b where b = 3*2*3
+  g = 19*abs(x) # minimum should be at 0 for lambda > |b| above
+  y = f+g
+  ggplot() + geom_line(aes(x,y)) + geom_line(aes(x, f), color="blue") + geom_line(aes(x, g), color="red") + geom_vline(xintercept=x[which.min(f+g)])
+  print(x[which.min(f+g)])
+#+END_SRC
+
+* Comparing regularization and stepwise regression
+Load simplified speed dating dataset, and restrict to analyzing attractiveness rating for males.
+#+BEGIN_SRC R :session :results output :exports both
+  library(dplyr)
+  dating = read.csv("../../../datasets/speed-dating-simple/speed-dating-simple.csv")
+  dating = filter(dating, gender == 1)
+  activities = select(dating, sports:yoga)
+  activities_scaled = scale(activities)
+  attr_o = dating[,'attr_o']
+#+END_SRC
+
+
+Use glmnet to fit L^1 and L^2 regularized linear models.
+#+BEGIN_SRC R :session :results output :exports both
+  library(glmnet)
+  fitL1 = glmnet(activities_scaled, attr_o, alpha=1) # alpha is proportion of weight given to L^1 cost vs. L^2
+  fitL2 = glmnet(activities_scaled, attr_o, alpha=0)
+#+END_SRC
+
+
+Given a glmnet model fit, and the features and target given to it, compute RMSE for model with each lambda tried by glmnet.
+#+BEGIN_SRC R :session :file images/R26958TDT.png  :results output graphics :exports both
+  library(ggplot2)
+  library(Rmisc)
+
+  get_rmses = function(fit, features, target) {
+      rmses = numeric(length(fit$lambda))
+      for (i in 1:length(rmses)) {
+          pred = predict(fit, features, s=fit$lambda[i])
+          rmses[i] = sqrt(mean((pred-target)^2))
+      }
+      return(rmses)
+  }
+
+  rmses_L1 = get_rmses(fitL1, activities_scaled, attr_o)
+  rmses_L2 = get_rmses(fitL2, activities_scaled, attr_o)
+
+  p1 = qplot(fitL1$lambda, rmses_L1) + xlab("lambda")
+  p2 = qplot(fitL2$lambda, rmses_L2) + xlab("lambda")
+  multiplot(p1, p2)
+#+END_SRC
+
+
+Note that these are minimized at lambda = 0 because we are computing on the dataset the model was trained on. Hence adding a regularization term will only increase RMSEs. The point of regularization is just to prevent overfitting on the training data.
+
+#+BEGIN_SRC R :session :file images/R26958gNZ.png  :results output graphics :exports both
+  fit_L1 = cv.glmnet(activities_scaled, attr_o, alpha=1)
+  fit_L2 = cv.glmnet(activities_scaled, attr_o, alpha=0)
+  p1 = qplot(fit_L1$lambda, fit_L1$cvm) + geom_vline(xintercept=fit_L1$lambda.min) + xlab("lambda") + ylab("L1 cv error")
+  p2 = qplot(fit_L2$lambda, fit_L2$cvm) + geom_vline(xintercept=fit_L2$lambda.min) + xlab("lambda") + ylab("L2 cv error")
+  multiplot(p1, p2)
+#+END_SRC
+
+** Stepwise regression vs regularization
+Run 20-fold cv. For each fold, build a model on the rest of the data using (1) step, (2) cv.glmnet with L1 and L2 regularization. Compute the RMSE for each on the held-out set.
+#+BEGIN_SRC R :session :results output :exports both
+  calc_rmse = function(x, y) sqrt(mean((x-y)^2))
+
+  n_folds = 20
+  folds = sample(length(attr_o)) %% n_folds + 1
+  pred_step = numeric(length(attr_o))
+  pred_L1 = numeric(length(attr_o))
+  pred_L2 = numeric(length(attr_o))
+
+  df_step = select(dating, attr_o, sports:yoga)
+
+  for (i in 1:n_folds) {
+      train_cv_features = scale(activities[folds != i,])
+      center = attr(train_cv, 'scaled:center'); scale = attr(train_cv, 'scaled:scale')
+      test_cv_features = scale(activities[folds == i,], center=center, scale=scale)
+
+      train_cv_target = attr_o[folds != i]
+      
+      train_step = df_step[folds != i,]
+      test_step = df_step[folds == i,]
+      
+      ## step
+      model = lm(attr_o ~ ., train_step)
+      fit_step = step(model, formula(model), direction="backward")
+      pred_step[folds == i] = predict(fit_step, test_step)
+      
+      ## cv.glmnet
+      fit_L1 = cv.glmnet(train_cv_features, train_cv_target, alpha=1)
+      fit_L2 = cv.glmnet(train_cv_features, train_cv_target, alpha=0)
+      pred_L1[folds == i] = predict(fit_L1, test_cv_features, s=fit_L1$lambda.min)
+      pred_L2[folds == i] = predict(fit_L2, test_cv_features, s=fit_L2$lambda.min)
+  }
+
+  rmse_step = calc_rmse(pred_step, attr_o)
+  rmse_L1 = calc_rmse(pred_L1, attr_o)
+  rmse_L2 = calc_rmse(pred_L2, attr_o)
+#+END_SRC
+
+
+Compare the RMSEs:
+#+BEGIN_SRC R :session :results output :exports both
+  print(c(step=rmse_step, L1=rmse_L1, L2=rmse_L2))
+#+END_SRC
+
+
+* Elastic net regression
+Use alpha between 0 and 1, to penalize by alpha*L^1 + (1-alpha)*L^2. Now we have to choose both lambda and alpha.
+#+BEGIN_SRC R :session :results output :exports both
+  library(caret)
+  features = activities_scaled
+  target = attr_o
+  ## set grid of parameter values to search over
+  param_grid = expand.grid(alpha = 1:10 * 0.1,
+                           lambda = 10^seq(-4, 0, length.out=10))
+
+  ## set 10-fold cross validation repeated 3x
+  control = trainControl(method="repeatedcv", number=10,
+                         repeats=3, verboseIter=TRUE)
+
+  ## search over the grid
+  caret_fit = train(x=features, y=target, method="glmnet",
+                    tuneGrid=param_grid, trControl=control)
+
+  caret_fit$bestTune
+  min(caret_fit$results$RMSE)
+
+#+END_SRC

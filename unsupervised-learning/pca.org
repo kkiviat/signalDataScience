@@ -1,0 +1,390 @@
+* PCA on the msq dataset
+** Prepare the data
+First load the data from the psych package and select the features of interest.
+#+BEGIN_SRC R :session :results output :exports code
+  library(psych)
+  library(dplyr)
+  df = select(msq, Extraversion, Neuroticism, active:scornful)
+#+END_SRC
+
+Count the NAs in each column:
+#+BEGIN_SRC R :session :results output :exports both
+  sort(colSums(is.na(df)), decreasing=TRUE)
+#+END_SRC
+
+
+Let's remove the columns that have more than 1000 NAs, and then remove the remaining rows that have any NAs.
+#+BEGIN_SRC R :session :results output :exports code
+  df = df[colSums(is.na(df)) < 1000]
+  df = na.omit(df)
+#+END_SRC
+
+** Run PCA
+Run PCA on the remaining variables.
+#+BEGIN_SRC R :session :results output :exports code
+  features = select(df, -Extraversion, -Neuroticism)
+  p = prcomp(features, scale.=TRUE)
+#+END_SRC
+
+
+This function will print the top 10 loadings of the nth principal component, ordered by absolute value. p is the output from prcomp.
+#+BEGIN_SRC R :session :results output :exports code
+  top = function(n, p) {
+      col = p$rotation[,n]
+      return(head(col[order(abs(col), decreasing=TRUE)], 10))
+  }
+#+END_SRC
+
+** Analyze the components
+Plot the loadings for the first 10 principal components, and look for simple themes to describe them. Here blue represents positive loading and red negative, while the darkness and size of the circle indicate the magnitude of the loading.
+#+BEGIN_SRC R :session :file images/R23902BUf.png :results output graphics :exports both
+  library(corrplot)
+  corrplot(p$rotation[,1:10], is.corr=FALSE)
+#+END_SRC
+
+
+Component 1 seems to be essentially happiness / sadness, since all of the strong positive weights seem to be on attributes related to happiness and energy, with the negative weights on things related to sadness and lethargy.
+
+#+BEGIN_SRC R :session :results output :exports both
+  top(1, p)
+#+END_SRC
+
+
+Component 2 has mostly negative values on negative or energetic emotions. This could perhaps be described as relaxed / nervous energy. 
+
+#+BEGIN_SRC R :session :results output :exports both
+  top(2 , p)
+#+END_SRC
+
+
+Component 3 is negative on emotions related to low energy. The strongest positive weight is on jittery, so let's call this one jittery / calm.
+
+#+BEGIN_SRC R :session :results output :exports both
+  top(3, p)
+#+END_SRC
+
+
+The fourth one is not that clear. It seems to be basically alert and somewhat unhappy / tired and happy.
+#+BEGIN_SRC R :session :results output :exports both
+  top(4, p)
+#+END_SRC
+
+
+Component 5 is a mix of bored, irritable and unafraid. Component 6 is sort of quiet nervousness, with low sociability. 
+
+Component 7 is mostly surprise and astonishment, with some hostility and anger. Component 8 could possibly be called anger. Component 9 doesn't have a very coherent mix. Component 10 is mostly boredom and non-quiescence. 
+
+Now, let's plot the eigenvalues and see how their relative magnitudes relate to the interpretability of the components.
+#+BEGIN_SRC R :session :file images/R23902bor.png :results output graphics :exports both
+  library(ggplot2)
+  ggplot() + geom_point(aes(1:length(p$sdev), p$sdev)) +
+      xlab("component") +
+      ylab("eigenvalue")
+#+END_SRC
+
+
+The eigenvalues drop rapidly through the first 4 components, then decrease more slowly up to around component 9 or 10, where they really level off. This is somewhat consistent with their interpretability, since the first few were generally the most interpretable as well. In fact, component 8 seems slightly high compared to the ones around it, and it was, in fact, more interpretable.
+
+** Cross validation for different numbers of components
+This function will return a cross-validated rmse for a linear model.
+
+#+BEGIN_SRC R :session :exports code
+  ## get latest version to fix bug when plotit and printit are both FALSE
+  devtools::install_github('gokceneraslan/DAAG')
+  library(DAAG)
+  ## rmse function for convenience
+  rmse = function(x, y) sqrt(mean((x-y)^2))
+
+  run_CVlm = function(features, target) {
+      data = data.frame(features)
+      data$target = target
+      sumss = 0
+      fit = CVlm(data=data, form.lm=formula(target ~ .), plotit=FALSE, printit=FALSE)
+      return(rmse(fit$Predicted, fit$target))
+  }
+#+END_SRC
+
+
+Let's try this for the first $k$ components, for $k = 1,\ldots,n$.
+#+BEGIN_SRC R :session :exports both
+  rmses_extraversion = numeric(ncol(p$x))
+  rmses_neuroticism = numeric(ncol(p$x))
+
+  for (k in 1:ncol(p$x)) {
+      rmses_extraversion[k] = run_CVlm(p$x[,1:k], df$Extraversion)
+      rmses_neuroticism[k] = run_CVlm(p$x[,1:k], df$Neuroticism)
+  }
+#+END_SRC
+
+
+And plot the rmses as a function of k:
+#+BEGIN_SRC R :session :file images/R11341FXH.png :results output graphics :exports both
+  ggplot() + geom_point(aes(1:length(rmses_neuroticism),rmses_neuroticism, color='neuroticism')) +
+      geom_point(aes(1:length(rmses_extraversion),rmses_extraversion, color='extraversion')) +
+      ylab("rmse") + xlab("number of components")
+#+END_SRC
+
+
+The minimum cross-validated RMSE I got for extraversion on the self-assessment was 3.9139, which is below the RMSEs here with up to the first 6 components included. For neuroticism, I got 4.362666, which is only beaten here by including 18 of the components.
+
+Adding the fourth component creates the biggest drop in RMSE for extraversion. 
+
+Let's build linear models to predict extraversion and neuroticism from just the first few components, with fairly clear interpretations.
+
+For extraversion:
+#+BEGIN_SRC R :session :results output :exports both
+  data = data.frame(p$x)
+  data$Extraversion = df$Extraversion
+  data$Neuroticism = df$Neuroticism
+
+  extraversion_model = lm(Extraversion ~ PC1 + PC2 + PC3 + PC4, data)
+  coef(extraversion_model)
+#+END_SRC
+
+
+So extraversion is positively associated with the first two components (happiness and relaxation), and negatively with the second two (jittery and awake/slightly unhappy).
+
+For neuroticism:
+#+BEGIN_SRC R :session :results output :exports both
+  neuroticism_model = lm(Neuroticism ~ PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC7, data)
+  coef(neuroticism_model)
+#+END_SRC
+
+
+Neuroticism is the opposite, being negatively correlated with the happiness and relaxation components, and positively correlated with jitteriness and alertness/unhappiness. Unsurprisingly, it is also positively correlated with component 6 (quite nervousness/low sociability).
+
+* PCA on the speed dating dataset
+** Prepare the data
+Read in the data and remove rows with NAs, and get the columns corresponding to the self-rated activities.
+#+BEGIN_SRC R :session :results output :exports code
+  df = read.csv("../datasets/speed-dating/speeddating-aggregated.csv")
+  df = na.omit(df)
+  activities = select(df, sports:yoga)
+#+END_SRC
+
+** Run PCA
+#+BEGIN_SRC R :session :results output :exports both
+  p = prcomp(activities, scale.=TRUE)
+#+END_SRC
+
+** Analyze the components
+#+BEGIN_SRC R :session :file images/R11341s8N.png :results output graphics :exports both
+  corrplot(p$rotation[,1:10], is.corr=FALSE)
+#+END_SRC
+
+
+Component 1 seems to be largely 'culture' (although negatively so).
+#+BEGIN_SRC R :session :results output :exports both
+  top(1, p)
+#+END_SRC
+
+
+Component 2 is largely sports/electronic entertainment (again, negatively so).
+#+BEGIN_SRC R :session :results output :exports both
+  top(2, p)
+#+END_SRC
+
+
+Component 3 seems to be a mix of physical activity and art.
+#+BEGIN_SRC R :session :results output :exports both
+  top(3, p)
+#+END_SRC
+
+
+Component 4 is mostly music, being dominated by music and concerts.
+#+BEGIN_SRC R :session :results output :exports both
+  top(4, p)
+#+END_SRC
+
+
+Beyond here they don't seem to have clear themes.
+
+** Predictions
+This function will return a logistic model predicting target using the first k columns of features. We will also turn the component scores into a data frame.
+#+BEGIN_SRC R :session :results output :exports both
+  glm_on_components = function(features, target, k) {
+      data = features[1:k]
+      data$target = target
+      return(glm(target ~ ., data=data, family="binomial"))
+  }
+  components = data.frame(p$x)
+#+END_SRC
+
+*** Predict gender
+Now we will attempt to predict gender using logistic regression on the first $k$ components, where $k = 1,\ldots,n$.
+#+BEGIN_SRC R :session :results output :exports code
+  gender_models = lapply(1:ncol(p$x),
+                         function(k) glm_on_components(components, df$gender, k))
+#+END_SRC
+
+
+Let's look at the coefficients for the first 4 components. We can see there are positive coefficients on components 1, 3 and 4, and negative on component 2. Hence being male seems to be negatively associated with 'culture' and positively associated with sports/electronic entertainment, physical activity/art, and music.
+#+BEGIN_SRC R :session :results output :exports both
+  summary(gender_models[[4]])
+#+END_SRC
+
+*** Predict race
+Now we will attempt to predict race (restricting to Caucasian and Asian).
+#+BEGIN_SRC R :session :results output :exports code
+  components_race = components[df$race %in% c(2, 4),]
+  target_race = factor(df$race[df$race %in% c(2, 4)])
+  race_models = lapply(1:ncol(p$x),
+                         function(k) glm_on_components(components_race, target_race, k))
+#+END_SRC
+
+
+There are negative coefficients on the first four components, although components 1 and 4 are not significant. From the other two components, it seems being interested in sports/electronic entertainment points toward Asian rather than Caucasian, while being interested in physical activity/art points toward Caucasian.
+#+BEGIN_SRC R :session :results output :exports both
+  summary(race_models[[4]])
+#+END_SRC
+
+*** Predict career
+Now we will attempt to predict race (restricting to academia and business).
+#+BEGIN_SRC R :session :results output :exports code
+  components_career = components[df$career_c %in% c(2, 7),]
+  target_career = factor(df$career_c[df$career_c %in% c(2, 7)])
+  career_models = lapply(1:ncol(p$x),
+                         function(k) glm_on_components(components_career, target_career, k))
+#+END_SRC
+
+
+Here, the only significant coefficients are on components 1 and 2. There is a positive coefficient on component 1, which means interest in 'culture' points toward academia rather than business. The negative coefficient on component 2 means that interest in sports/electronic entertainment instead points to a business career.
+#+BEGIN_SRC R :session :results output :exports both
+  summary(career_models[[4]])
+#+END_SRC
+
+*** AUC
+Now we will calculate the areas under the ROC curves for all of these models. The following function will compute the AUC for a given model and data.
+#+BEGIN_SRC R :session :results output :exports code
+  library(ROCR)
+  calculate_auc = function(log_model, features, target) {
+      predictions = predict(log_model, features, type="response")
+      pred = prediction(predictions, target)
+      return(performance(pred, measure="auc")@y.values)
+  }
+#+END_SRC
+
+
+Get the AUC for each classifier, for each subset of the components.
+#+BEGIN_SRC R :session :results output :exports both
+  ## gender
+  gender_auc = unlist(sapply(gender_models, function(m) calculate_auc(m, components, df$gender)))
+  ## race
+  race_auc = unlist(sapply(race_models, function(m) calculate_auc(m, components_race, target_race)))
+  ## career
+  career_auc = unlist(sapply(career_models, function(m) calculate_auc(m, components_career, target_career)))
+#+END_SRC
+
+
+Plot the AUC vs. number of components for each classification.
+#+BEGIN_SRC R :session :file images/R11341Tbg.png :results output graphics :exports both
+  n = length(gender_auc)
+  p1 = qplot(1:n, gender_auc) + xlab("number of components") + ylab("AUC") + ggtitle("Gender")
+  p2 = qplot(1:n, race_auc) + xlab("number of components") + ylab("AUC") + ggtitle("Race")
+  p3 = qplot(1:n, career_auc) + xlab("number of components") + ylab("AUC") + ggtitle("Career")
+  library(Rmisc)
+  multiplot(p1, p2, p3)
+#+END_SRC
+
+*** Comparison to stepwise and regularized regression
+
+Calculate step models for each category based on the 17 activities.
+#+BEGIN_SRC R :session :results output :exports code
+  ## gender
+  data = select(df, gender, sports:yoga)
+  model = glm(gender ~ ., data, family="binomial")
+  gender_step = step(model, formula(model), direction="backward", trace=0)
+
+  ## race
+  data = select(df, race, sports:yoga)
+  data = filter(data, race %in% c(2, 4))
+  data$race = factor(data$race)
+  model = glm(race ~ ., data, family="binomial")
+  race_step = step(model, formula(model), direction="backward", trace=0)
+
+  ## career
+  data = select(df, career_c, sports:yoga)
+  data = filter(data, career_c %in% c(2, 7))
+  data$career_c = factor(data$career_c)
+  model = glm(career_c ~ ., data, family="binomial")
+  career_step = step(model, formula(model), direction="backward", trace=0)
+#+END_SRC
+
+
+Calculate regularized models for each category based on the 17 activities
+#+BEGIN_SRC R :session :results output :exports code
+  library(caret)
+  run_regularization = function(features, target) {
+      param_grid = expand.grid(alpha = 1:10 * 0.1,
+                               lambda = 10^seq(0, -4, length.out=10))
+      control = trainControl(method="repeatedcv", number=10,
+                             repeats=3, verboseIter=FALSE)
+      fit = train(features, target, method="glmnet",
+                  tuneGrid=param_grid, trControl=control)
+      alpha = fit$bestTune$alpha
+      lambda = fit$bestTune$lambda
+      return(glmnet(features, target, alpha=alpha, lambda=lambda, family="binomial"))
+  }
+
+  features = scale(activities)
+  gender_reg = run_regularization(features, factor(df$gender))
+  race_reg = run_regularization(features[df$race %in% c(2, 4),], target_race)
+  career_reg = run_regularization(features[df$career_c %in% c(2, 7),], target_career)
+#+END_SRC
+
+
+Compute AUC for each of these models.
+#+BEGIN_SRC R :session :results output :exports both
+  ## step
+  gender_step_auc = unlist(calculate_auc(gender_step, activities, df$gender))
+  race_step_auc = unlist(calculate_auc(race_step,
+                                       activities[df$race %in% c(2, 4),],
+                                       target_race))
+  career_step_auc = unlist(calculate_auc(career_step,
+                                         activities[df$career_c %in% c(2, 7),],
+                                         target_career))
+  c(gender_step_auc=gender_step_auc,
+    race_step_auc=race_step_auc,
+    career_step_auc=career_step_auc)
+
+  ## regularization
+  features = scale(activities)
+  gender_reg_auc = unlist(calculate_auc(gender_reg,
+                                        features,
+                                        factor(df$gender)))
+  race_reg_auc = unlist(calculate_auc(race_reg,
+                                      features[df$race %in% c(2, 4),],
+                                      target_race))
+  career_reg_auc = unlist(calculate_auc(career_reg,
+                                        features[df$career_c %in% c(2, 7),],
+                                        target_career))
+  c(gender_reg_auc=gender_reg_auc,
+    race_reg_auc=race_reg_auc,
+    career_reg_auc=career_reg_auc)
+#+END_SRC
+
+* Multinomial logistic regression
+We will restrict to the four most commonly listed careers and use unregularized multinomial logistic regression to predict the careers in terms of average ratings by other participants and the 17 activities.
+#+BEGIN_SRC R :session :results output :exports code
+  top_careers = names(sort(table(df$career_c), decreasing=TRUE))[1:4]
+  df_top_careers = df[df$career_c %in% top_careers,]
+  features = as.matrix(select(df_top_careers, attr_o:amb_o, sports:yoga))
+  model = glmnet(features, df_top_careers$career_c, family="multinomial")
+#+END_SRC
+
+
+Make predictions on the whole dataset, getting log-odds ratios.
+#+BEGIN_SRC R :session :results output :exports code
+  predictions = predict(model, features, s=0)
+#+END_SRC
+
+
+Calculate the principal components of the log-odds ratios and visualize the loadings.
+#+BEGIN_SRC R :session :file images/R11341sDC.png :results output graphics :exports both
+  p = prcomp(scale(as.data.frame(predictions)), scale.=TRUE)
+  rownames(p$rotation) = c("Lawyer", "Academia", "Creative", "Business")
+  corrplot(p$rotation, is.corr=FALSE)
+#+END_SRC
+
+
+Principal component 1 mainly distinguishes between Law/Business and Academia/Creative. Component 2 mostly distinguishes between Creative and Academic, while component 3 distinguishes Law and Business.

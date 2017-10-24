@@ -1,0 +1,171 @@
+* Loading the data
+#+BEGIN_SRC R :session :results output :exports both
+  df = read.csv("../datasets/speed-dating/speeddating-aggregated.csv")
+  nrow(df) - sum(complete.cases(df)) # number of incomplete rows
+  (nrow(df)-sum(complete.cases(df)))/nrow(df) # proportion of incomplete rows
+
+  df = na.omit(df) # remove rows with NAs
+#+END_SRC
+
+* Unregularized logistic regression
+** predict gender
+Predict gender in terms of the 17 self-rated activity participation variables.
+#+BEGIN_SRC R :session :results output :exports both
+  library(dplyr)
+
+  df_gender = select(df, gender, sports:yoga)
+  logistic_model = glm(gender ~ ., family="binomial", data=df_gender)
+  summary(logistic_model)
+#+END_SRC
+
+
+The interests with positive coefficients increase the probability of male, while those with negative increase the probability of female. Gaming and sports are the strongest male indicators, while shopping and theater are the strongest for female.
+
+Look at the ROC curve:
+#+BEGIN_SRC R :session :file images/R23902zz1.png :results output graphics :exports both
+  library(ROCR)
+  predictions = predict(logistic_model, df_gender)
+  pred = prediction(predictions, df_gender$gender)
+  perf = performance(pred, measure="tpr", x.measure="fpr")
+  plot(perf, colorize=TRUE)
+#+END_SRC
+
+
+Area under curve:
+#+BEGIN_SRC R :session :exports both
+  performance(pred, measure="auc")@y.values
+#+END_SRC
+
+** predict career
+Restrict to people with careers in academia (code 2) or business/finance (code 7). Classify these careers based on the 17 activities
+#+BEGIN_SRC R :session :results output :exports both
+  df_career = df[df$career_c %in% c(2, 7),]
+  df_career = select(df_career, career_c, sports:yoga)
+  df_career$career_c = as.factor(df_career$career_c)
+
+  log_model_career = glm(career_c ~ ., df_career, family="binomial")
+  summary(log_model_career)
+#+END_SRC
+
+Positive coefficients indicate higher probability of business, while negative indicates higher probability of academia. Dining is the strongest for business, while museums is the strongest for academia.
+
+Look at the ROC curve:
+#+BEGIN_SRC R :session :file images/R23902agw.png :results output graphics :exports both
+  predictions_career = predict(log_model_career, df_career, type="response")
+  pred_career = prediction(predictions_career, df_career$career_c)
+  perf_career = performance(pred_career, measure="tpr", x.measure="fpr")
+  plot(perf_career, colorize=TRUE)
+#+END_SRC
+
+Area under curve:
+#+BEGIN_SRC R :session :exports both
+  performance(pred_career, measure="auc")@y.values
+#+END_SRC
+
+** predict race
+#+BEGIN_SRC R :session :results output :exports both
+  df_race = df[df$race %in% c(2, 4),]
+  df_race = select(df_race, race, sports:yoga)
+  df_race$race = as.factor(df_race$race)
+
+  log_model_race = glm(race ~ ., df_race, family="binomial")
+  summary(log_model_race)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+
+Call:
+glm(formula = race ~ ., family = "binomial", data = df_race)
+
+Deviance Residuals: 
+    Min       1Q   Median       3Q      Max  
+-1.4648  -0.8640  -0.6148   1.1148   2.1353  
+
+Coefficients:
+             Estimate Std. Error z value Pr(>|z|)   
+(Intercept) -0.782975   0.882172  -0.888  0.37478   
+sports      -0.058211   0.056618  -1.028  0.30389   
+tvsports     0.120384   0.051729   2.327  0.01995 * 
+exercise    -0.129198   0.053201  -2.428  0.01516 * 
+dining       0.048085   0.073953   0.650  0.51555   
+museums     -0.127763   0.118170  -1.081  0.27962   
+art          0.018939   0.107391   0.176  0.86001   
+hiking       0.041135   0.048872   0.842  0.39997   
+gaming       0.050920   0.045764   1.113  0.26585   
+clubbing    -0.016788   0.048122  -0.349  0.72719   
+reading     -0.022018   0.060386  -0.365  0.71540   
+tv           0.101101   0.058178   1.738  0.08225 . 
+theater      0.047560   0.075531   0.630  0.52891   
+movies      -0.086886   0.081322  -1.068  0.28533   
+concerts     0.031418   0.078052   0.403  0.68730   
+music       -0.074322   0.084263  -0.882  0.37777   
+shopping     0.172418   0.057625   2.992  0.00277 **
+yoga        -0.008995   0.045957  -0.196  0.84482   
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+(Dispersion parameter for binomial family taken to be 1)
+
+    Null deviance: 537.25  on 434  degrees of freedom
+Residual deviance: 487.93  on 417  degrees of freedom
+AIC: 523.93
+
+Number of Fisher Scoring iterations: 4
+#+end_example
+
+Here positive coefficients weight towards Asian, while negative coefficients weight towards Caucasian. Few of the variables are significant here. The most significant one is shopping, which increases probability of Asian.
+
+Look at the ROC curve:
+#+BEGIN_SRC R :session :file images/R23902zIS.png :results output graphics :exports both
+  predictions_race = predict(log_model_race, df_race, type="response")
+  pred_race = prediction(predictions_race, df_race$race)
+  perf_race = performance(pred_race, measure="tpr", x.measure="fpr")
+  plot(perf_race, colorize=TRUE)
+#+END_SRC
+This is generally closer to the diagonal line, consistent with the model not being that predictive. Similarly, the AUC should be lower.
+
+AUC:
+#+BEGIN_SRC R :session :exports both
+  performance(pred_race, "auc")@y.values
+#+END_SRC
+
+It is.
+
+* Multinomial logistic regression
+Find four most common careers
+#+BEGIN_SRC R :session :results output :exports both
+  print(sort(table(df$career_c), decreasing=TRUE))
+  top_four_careers = unlist(dimnames(head(sort(table(df$career_c), decreasing=TRUE), 4)))
+  df_top_careers = df[df$career_c %in% top_four_careers,]
+#+END_SRC
+
+Predict career in terms of activity participation and average ratings by other participants.
+#+BEGIN_SRC R :session :results output :exports code
+  library(glmnet)
+  ## turn careers into factor variable
+  df_top_careers$career_c = factor(df_top_careers$career_c)
+  levels(df_top_careers$career_c) = c('Lawyer', 'Academic', 'Creative', 'Business')
+
+  ## get features
+  features = scale(select(df_top_careers, attr_o:amb_o, sports:yoga))
+
+  fit = glmnet(features, df_top_careers$career_c, family="multinomial")
+#+END_SRC
+
+Use corrplot to visualize coefficients. Use is.corr=FALSE so it doesn't require the coefficients to be in [-1, 1].
+#+BEGIN_SRC R :session :file images/R23902auY.png :results output graphics :exports both
+  library(corrplot)
+  m = as.matrix(do.call(cbind, coef(fit, s=0)))[-1,]
+  colnames(m) = c("Lawyer", "Academia", "Creative", "Business")
+  corrplot(t(m), is.corr=FALSE)
+#+END_SRC
+
+
+Function to convert a row of log-odds from multinomial logistic model into probabilities, by exponentiating and normalizing.
+#+BEGIN_SRC R :session :results output :exports both
+    probabilities = function(preds, rownum) {
+        exp(preds[rownum,])/sum(exp(preds[rownum,]))
+    }
+#+END_SRC
+

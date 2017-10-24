@@ -1,0 +1,508 @@
+* Speed dating dataset
+** Set up the data
+Load it
+#+BEGIN_SRC R :session :results output :exports code
+  library(dplyr)
+  df_full = read.csv("../datasets/speed-dating-simple/speed-dating-simple.csv")
+  ##speeddating = df_full[-c(1, 3:6)] # remove the variables we won't be using
+  speeddating = select(df_full, -intel_o, -amb_o, -fun_o, -sinc_o, -gender)
+#+END_SRC
+
+
+Split it randomly into two equal-size sets
+#+BEGIN_SRC R :session :results output :exports both
+  split_data = function(df) {
+      shuffled_rows = sample(1:nrow(df), size=nrow(df), replace=FALSE)
+      mid_index = ceiling((length(shuffled_rows)/2))
+      result = list(train=df[shuffled_rows[1:mid_index],], test=df[shuffled_rows[(mid_index+1):length(shuffled_rows)],])
+      return(result)
+      ## or
+      ## groups = sample(1:nrow(df)) %% 2
+      ## train = df[groups == 0,]
+      ## test = df[groups == 1,]
+  }
+#+END_SRC
+
+
+Write a function to train a linear model on the train set to predict attractiveness from the 17 activities and uses predict to make predictions for both the train and test sets.
+#+BEGIN_SRC R :session :results output :exports code
+  split_predict = function(train, test) {
+      linear_model = lm(attr_o ~ ., data=train)
+      train_predictions = predict(linear_model, newdata=train)
+      test_predictions = predict(linear_model, newdata=test)
+      return(list(train=train_predictions, test=test_predictions))
+  }
+#+END_SRC
+
+
+Write a function to calculate RMSE
+#+BEGIN_SRC R :session :results output :exports code
+  rmse = function(x, y) sqrt(mean((x-y)^2))
+#+END_SRC
+
+
+** evaluate training vs testing performance
+Generate train/test splits 100 times and generate predictions for each. Plot histograms of the RMSE values for the train set and the test set on the same graph
+#+BEGIN_SRC R :session :file images/R11387ZCT.png  :results output graphics :exports both
+  train_rmse = vector(mode="numeric", length=100) # or numeric(100)
+  test_rmse = vector(mode="numeric", length=100)
+  for (i in 1:100) {
+      sd_data = split_data(speeddating)
+      sd_pred = split_predict(sd_data$train, sd_data$test)
+      train_rmse[i] = rmse(sd_pred$train, sd_data$train$attr_o)
+      test_rmse[i] = rmse(sd_pred$test, sd_data$test$attr_o)
+  }
+
+  library(ggplot2)
+  ggplot() + geom_histogram(aes(train_rmse, fill='train'), alpha=0.5) +
+      geom_histogram(aes(test_rmse, fill='test'), alpha=0.5) +
+      scale_fill_manual(values = c("turquoise", "pink"), name="Data partition") +
+      xlab('rmse') + ggtitle('Distribution of RMSEs for training set and testing set')
+#+END_SRC
+
+
+*** evaluate
+Compute the mean and standard deviation for train set and test set
+RMSE
+#+BEGIN_SRC R :session :results output :exports both
+  cat(sprintf("training rmse mean = %f\n", mean(train_rmse)))
+  cat(sprintf("training rmse sd = %f\n", sd(train_rmse)))
+  cat(sprintf("testing rmse mean = %f\n", mean(test_rmse)))
+  cat(sprintf("testing rmse sd = %f\n", sd(test_rmse)))
+#+END_SRC
+
+
+** n-fold cv
+Function to split the speeddating data frame into n_folds partitions, compute predictions on each partition using the rest of the data, then return the rmse on the whole dataset
+#+BEGIN_SRC R :session :results output :exports code
+  nfold_cv = function(df, n_folds) {
+      ## create the partitions
+      shuffled_indices = sample(1:nrow(df), size=nrow(df), replace=FALSE)
+      
+      partitions = vector(mode="list", length=n_folds)
+      partition_size = nrow(df)/n_folds
+
+      for (i in 1:n_folds) {
+          start = floor(1 + (i-1)*partition_size)
+          end = floor(1 + i*partition_size)-1
+          partitions[[i]] = shuffled_indices[start:end]
+      }
+
+      ## calculate predictions and RMSE for each partition
+      predictions = vector(mode="numeric", length=nrow(df)) # numeric(nrow(df))
+      ## or
+      ## folds = sample(nrow(df)) %% n_folds + 1
+      ## train_i = df[folds != i,]
+      ## test_i = df[folds == i,]
+      for (i in 1:n_folds) {
+          train_indices = unlist(partitions[-i])
+          test_indices = unlist(partitions[i])
+          train = df[train_indices,]
+          test = df[test_indices,]
+
+          pred = split_predict(train, test)
+          predictions[test_indices] = pred$test
+      }
+      return(rmse(predictions, df['attr_o']))
+  }
+#+END_SRC
+
+Run nfold_cv() 100 times for n=2 and for n=10, and plot the distributions of the RMSE values for each n on the same graph
+#+BEGIN_SRC R :session :file images/R11387oOn.png  :results output graphics :exports both
+  n_trials = 100
+
+  ## n_folds = 2
+  rmse_2 = vector(mode="numeric", length=n_trials)
+  for (i in 1:n_trials) {
+      rmse_2[i] = nfold_cv(speeddating, 2)
+  }
+
+  ## n_folds = 10
+  rmse_10 = vector(mode="numeric", length=n_trials)
+  for (i in 1:n_trials) {
+      rmse_10[i] = nfold_cv(speeddating, 10)
+  }
+
+  library(ggplot2)
+  ggplot() + geom_histogram(aes(rmse_2, fill='2'), alpha=0.5) +
+      geom_histogram(aes(rmse_10, fill='10'), alpha=0.5) +
+      scale_fill_manual(values = c("turquoise", "pink"), name="number of folds") +
+      xlab('rmse') + ggtitle('Distribution of RMSEs for 2-fold and 10-fold cv')
+
+#+END_SRC
+
+
+*** evaluate
+Compute the mean and standard deviation of the RMSE for 2-fold and 10-fold
+#+BEGIN_SRC R :session :results output :exports both
+  cat(sprintf("2-fold cv rmse mean = %f\n", mean(rmse_2)))
+  cat(sprintf("2-fold cv rmse sd = %f\n", sd(rmse_2)))
+  cat(sprintf("10-fold cv rmse mean = %f\n", mean(rmse_10)))
+  cat(sprintf("10-fold cv rmse sd = %f\n", sd(rmse_10)))
+#+END_SRC
+
+#+RESULTS:
+: 2-fold cv rmse mean = 1.140355
+: 2-fold cv rmse sd = 0.018834
+: 10-fold cv rmse mean = 1.122786
+: 10-fold cv rmse sd = 0.004429
+
+** Backward stepwise regression
+Implement backward stepwise regression. 
+#+BEGIN_SRC R :session :results output :exports code
+  backward_step = function(df) {
+      n_removed = 0:(ncol(df)-2)
+      rmse_cv = vector(mode="numeric", length=ncol(df)-1)
+      rmse_nocv = vector(mode="numeric", length=ncol(df)-1)
+      cols = colnames(df)
+      
+      for (i in 1:(ncol(df)-1)) { # stop when the only remaining column is attr_o
+          ## compute 10-fold cross-validated RMSE
+          rmse_cv[i] = nfold_cv(df[cols], 10)
+          
+          ## compute RMSE from building linear model on entire set
+          ## (minus columns removed so far)
+          linear_model = lm(attr_o ~ ., data=df[cols])
+          pred = predict(linear_model, newdata=df[cols])
+          rmse_nocv[i] = rmse(pred, df['attr_o'])
+
+          ## get the variable with max p-value (excluding intercept in first position)
+          worst_col = names(which.max(
+              summary(linear_model)$coefficients[-1, 'Pr(>|t|)']
+          ))
+
+          ## remove column from list
+          cols = cols[-which(cols == worst_col)]
+      }
+      return(data.frame(n_removed=n_removed, rmse_cv=rmse_cv, rmse_nocv=rmse_nocv))
+  }
+#+END_SRC
+
+
+Plot cv RMSE and non-cv RMSE vs number of features removed
+#+BEGIN_SRC R :session :file images/R11387bSJ.png  :results output graphics :exports both
+  results = backward_step(speeddating)
+
+  ggplot(results) +
+      geom_line(aes(x=n_removed, y=rmse_cv, color="cv")) +
+      geom_line(aes(x=n_removed, y=rmse_nocv, color="no cv")) +
+      xlab("number of variables removed") + ylab("RMSE")
+#+END_SRC
+
+
+The CV RMSE seems to roughly decrease until around 10 variables have been removed, at which point it begins to increase quickly. The no-cv RMSE keeps increasing, since we are looking at the RMSE from the same dataset it was trained on. You can only do better by having more variables. The cv predictions, on the other hand, are made on data not included in building the model, so it is susceptible to overfitting.
+
+** R's step()
+Use step() to predict each of the five rating variables in terms of the 17 activity ratings.
+#+BEGIN_SRC R :session :results output :exports both
+  features = c('attr_o', 'sinc_o', 'intel_o', 'fun_o', 'amb_o')
+
+  models = vector(mode="list", length=length(features))
+  i = 1
+  for(feature in features) {
+      df = select(df_full, feature, sports:yoga)
+      f = paste0(feature, '~.')
+      model = lm(f, df)
+      models[[i]] = step(model, formula(model), direction="backward")
+      i = i + 1
+  }
+
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  models
+#+END_SRC
+
+
+The remaining variables in each model should be the best predictors of the corresponding attribute. Some of them are rather surprising, though, like that interest in sports and dining and lack of interest in concerts are the best predictors of ambition rating. It is interesting that both attractiveness and intelligence respond positively to interest in sports and negatively to interest in tv sports.
+
+** Bootstrapping
+Randomly picking rows from dataset with replacement to form a new dataset with the same number of rows. The point is to mimic new data from the population. On average, about 2/3 of the rows will be selected at least once in each bootstrapped sample:
+#+BEGIN_SRC R :session :results output :exports both
+  ## Probability of a row not being sampled when bootstrapping
+  sapply(1:50, function(n) (1-1/n)^n)
+  ## (approaching exp(-1))
+  exp(-1)
+#+END_SRC
+
+
+*** Comparing models
+Demonstrate two bad approaches to modeling with bootstrapping:
+1. train a model on each bootstrapped sample and make predictions on original dataset (severely underestimates RMSE)
+2. train a model on original dataset and make predictions on each bootstrapped sample, average RMSEs (even worse)
+#+BEGIN_SRC R :session :results output :exports code
+  get_bootstrapped_sample = function(df) {
+      indices = sample(1:nrow(df), replace=TRUE)
+      return(df[indices,])
+  }
+
+  bootstrap_bad = function(df, approach) {
+      if (!(approach %in% c(1,2))) {
+          print("approach must be 1 or 2")
+          return()
+      }
+
+      n_samples = 100
+      rmse_sum = 0
+      for (i in 1:n_samples) {
+          df_bs = get_bootstrapped_sample(df)
+
+          if (approach == 1) {
+              train = df_bs
+              test = df
+          } else {
+              train = df
+              test = df_bs
+          }
+
+          model = lm(attr_o ~ ., train)
+          pred_test = predict(model, test)
+          rmse_sum = rmse_sum + rmse(pred_test, test['attr_o'])
+      }
+      return(rmse_sum/n_samples)
+  }
+#+END_SRC
+
+
+Redo backward_step, this time also tracking RMSE for bootstrap_bad.
+#+BEGIN_SRC R :session :results output :exports both
+  backward_step_2 = function(df) {
+      n_removed = 0:(ncol(df)-2)
+      rmse_cv = numeric(ncol(df)-1)
+      rmse_nocv = numeric(ncol(df)-1)
+      rmse_bs_1 = numeric(ncol(df)-1)
+      rmse_bs_2 = numeric(ncol(df)-1)
+      cols = colnames(df)
+      
+      for (i in 1:(ncol(df)-1)) { # stop when the only remaining column is attr_o
+          ## compute 10-fold cross-validated RMSE
+          rmse_cv[i] = nfold_cv(df[cols], 10)
+
+          ## compute bootstrap RMSEs for approaches 1 and 2
+          rmse_bs_1[i] = bootstrap_bad(df[cols], 1)
+          rmse_bs_2[i] = bootstrap_bad(df[cols], 2)
+          
+          ## compute RMSE from building linear model on entire set
+          ## (minus columns removed so far)
+          linear_model = lm(attr_o ~ ., data=df[cols])
+          pred = predict(linear_model, newdata=df[cols])
+          rmse_nocv[i] = rmse(pred, df['attr_o'])
+
+          ## get the variable with max p-value (excluding intercept in first position)
+          worst_col = names(which.max(
+              summary(linear_model)$coefficients[-1, 'Pr(>|t|)']
+          ))
+
+          ## remove column from list
+          cols = cols[-which(cols == worst_col)]
+      }
+      return(data.frame(n_removed=n_removed, rmse_cv=rmse_cv, rmse_nocv=rmse_nocv,
+                        rmse_bs_1=rmse_bs_1, rmse_bs_2=rmse_bs_2))
+  }
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R26958Rl0.png  :results output graphics :exports both
+  results = backward_step_2(speeddating)
+
+  ggplot(results) +
+      geom_line(aes(x=n_removed, y=rmse_cv, color="cv")) +
+      geom_line(aes(x=n_removed, y=rmse_nocv, color="no cv")) +
+      geom_line(aes(x=n_removed, y=rmse_bs_1, color="bootstrap approach 1")) +
+      geom_line(aes(x=n_removed, y=rmse_bs_2, color="bootstrap approach 2")) +
+      xlab("number of variables removed") + ylab("RMSE")
+#+END_SRC
+
+
+Bootstrap approaches 1 and 2 are both significantly below the RMSE for the cross-validated approach. Note that these shouldn't be compared with the no-cv line since that is on the training set, while the others are on separate testing sets (although the bootstrap approaches have a lot of overlap between training and testing sets).
+
+bootstrap_good works like bootstrap_bad with approach=1 except that each model is tested on the rows not included in the bootstrapped sample, rather than on the entire dataset.
+#+BEGIN_SRC R :session :results output :exports code
+  bootstrap_good = function(df) {
+      n_samples = 100
+      rmse_sum = 0
+      for (i in 1:n_samples) {
+          indices = sample(nrow(df), replace=TRUE)
+          df_bs = get_bootstrapped_sample(df)
+
+          train = df[indices,]
+          test = df[-indices,]
+
+          model = lm(attr_o ~ ., train)
+          pred_test = predict(model, test)
+          rmse_sum = rmse_sum + rmse(pred_test, test['attr_o'])
+      }
+      return(rmse_sum/n_samples)
+  }
+#+END_SRC
+
+
+Like backward_step_2, but uses bootstrap_good instead of bootstrap_bad
+#+BEGIN_SRC R :session :results output :exports code
+  backward_step_3 = function(df) {
+      n_removed = 0:(ncol(df)-2)
+      rmse_cv = numeric(ncol(df)-1)
+      rmse_nocv = numeric(ncol(df)-1)
+      rmse_bs = numeric(ncol(df)-1)
+      cols = colnames(df)
+      
+      for (i in 1:(ncol(df)-1)) { # stop when the only remaining column is attr_o
+          ## compute 10-fold cross-validated RMSE
+          rmse_cv[i] = nfold_cv(df[cols], 10)
+
+          ## compute bootstrap RMSEs for approaches 1 and 2
+          rmse_bs[i] = bootstrap_good(df[cols])
+          
+          ## compute RMSE from building linear model on entire set
+          ## (minus columns removed so far)
+          linear_model = lm(attr_o ~ ., data=df[cols])
+          pred = predict(linear_model, newdata=df[cols])
+          rmse_nocv[i] = rmse(pred, df['attr_o'])
+
+          ## get the variable with max p-value (excluding intercept in first position)
+          worst_col = names(which.max(
+              summary(linear_model)$coefficients[-1, 'Pr(>|t|)']
+          ))
+
+          ## remove column from list
+          cols = cols[-which(cols == worst_col)]
+      }
+      return(data.frame(n_removed=n_removed, rmse_cv=rmse_cv, rmse_nocv=rmse_nocv,
+                        rmse_bs=rmse_bs))
+  }
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R26958Q5J.png  :results output graphics :exports both
+  results = backward_step_3(speeddating)
+
+  ggplot(results) +
+      geom_line(aes(x=n_removed, y=rmse_cv, color="cv")) +
+      geom_line(aes(x=n_removed, y=rmse_nocv, color="no cv")) +
+      geom_line(aes(x=n_removed, y=rmse_bs, color="good bootstrap approach")) +
+      xlab("number of variables removed") + ylab("RMSE")
+#+END_SRC
+
+#+RESULTS:
+[[file:images/R26958Q5J.png]]
+Now it is overestimating the RMSE. (In general, bootstrapping is more biased but has lower variance than cross validation. But the differences in practice are minor.)
+
+*** estimating parameter distributions
+Suppose we want to invest a fraction $\alpha$ of our money into stock X, and the rest in stock Y. If we want to minimize the risk (variance), we should choose $\alpha$ as follows:
+
+$v = Var(\alpha X + (1-\alpha)Y) = \alpha^2\sigma_X^2 + (1-\alpha)^2\sigma_Y^2$
+$v' = 2\alpha\sigma_X^2 - 2\sigma_Y^2 + 2\alpha\sigma_Y^2 = 0$
+$\implies \alpha = \frac{\sigma_Y^2}{\sigma_X^2 + \sigma_Y^2}$
+
+#+BEGIN_SRC R :session :results output :exports code
+  calc_alpha = function(X, Y) {
+      varX = var(X)
+      varY = var(Y)
+      return(varY/(varX + varY))
+  } 
+#+END_SRC
+
+
+Assume X and Y are normally distributed with mean 10 and s.d. sdX and sdY. Generate 100 observations of both distributions, stored as X and Y. Then generate 1000 bootstrapped samples of both X and Y. Calculate and store the corresponding value of $\alpha$ with calc_alpha(). Return the list of 1000 estimates of $\alpha$.
+#+BEGIN_SRC R :session :results output :exports code
+  bootstrap_vec = function(X) {
+      return(X[sample(length(X), replace=TRUE)])
+  }
+
+  gen_alphas = function(sdX, sdY) {
+      mu = 10
+      n_obs = 100
+      n_samples = 1000
+
+      cat(sprintf("sdX = %f, sdY = %f\n", sdX, sdY))
+      ## generate observations of X and Y
+      X = rnorm(n=n_obs, mean=mu, sd=sdX)
+      Y = rnorm(n=n_obs, mean=mu, sd=sdY)
+
+      ## generate bootstrapped samples of X and Y
+      X_samples = lapply(1:n_samples, function(a) bootstrap_vec(X))
+      Y_samples = lapply(1:n_samples, function(a) bootstrap_vec(Y))
+
+      alphas = mapply(calc_alpha, X_samples, Y_samples)
+      return(alphas)
+  }
+#+END_SRC
+
+Plot histograms of $\alpha$ estimates for these pairs of sdX, sdY: (1,3), (3,1), (1,1)
+#+BEGIN_SRC R :session :file images/R269583eQ.png  :results output graphics :exports both
+  sdX=3
+  sdY=1
+  alphas1 = gen_alphas(1, 3)
+  alphas2 = gen_alphas(3, 1)
+  alphas3 = gen_alphas(1, 1)
+  p1 = ggplot() + geom_histogram(aes(x=alphas1)) + ggtitle(paste0("sdX = ", 1, ", sdY = ", 3)) + xlab("alpha")
+  p2 = ggplot() + geom_histogram(aes(x=alphas2)) + ggtitle(paste0("sdX = ", 3, ", sdY = ", 1)) + xlab("alpha")
+  ggplot() + geom_histogram(aes(x=alphas3)) + ggtitle(paste0("sdX = ", 1, ", sdY = ", 1)) + xlab("alpha")
+  multiplot(p1, p2, p3)
+#+END_SRC
+
+
+Means and sd:
+#+BEGIN_SRC R :session :results output :exports both
+  cat(sprintf("(1,3): mean = %f, sd = %f\n", mean(alphas1), sd(alphas1)))
+  cat(sprintf("(3,1): mean = %f, sd = %f\n", mean(alphas2), sd(alphas2)))
+  cat(sprintf("(1,1): mean = %f, sd = %f\n", mean(alphas3), sd(alphas3)))
+#+END_SRC
+
+
+When sdX and sdY have equal variance, the alphas are roughly centered around 0.5, which makes sense since in this case there is no reason to prefer one stock over the other. When the variance of Y is higher, $\alpha$ is higher (more money in X). Similarly, when var(X) is higher $\alpha$ is lower (more money in Y).
+
+Plot histograms of $\alpha$ estimates for these pairs of sdX, sdY: (1,2), (1,3), (1,4)
+#+BEGIN_SRC R :session :file images/R269583eQ.png  :results output graphics :exports both
+  alphas1 = gen_alphas(1, 2)
+  alphas2 = gen_alphas(1, 3)
+  alphas3 = gen_alphas(1, 4)
+  ggplot() + geom_histogram(aes(x=alphas1, fill='(1,2)'), alpha=0.4) +
+      geom_histogram(aes(x=alphas2, fill='(1,3)'), alpha=0.4) +
+      geom_histogram(aes(x=alphas3, fill='(1,4)'), alpha=0.4) +
+      xlab("alpha")
+#+END_SRC
+
+
+Compute mean and sd:
+#+BEGIN_SRC R :session :results output :exports both
+  cat(sprintf("(1,2): mean = %f, sd = %f\n", mean(alphas1), sd(alphas1)))
+  cat(sprintf("(1,3): mean = %f, sd = %f\n", mean(alphas2), sd(alphas2)))
+  cat(sprintf("(1,4): mean = %f, sd = %f\n", mean(alphas3), sd(alphas3)))
+#+END_SRC
+
+
+As expected, as sdY increases the $\alpha$s shift further right, meaning we should put more money in X.
+
+Compare this to actually drawing new samples from the population:
+#+BEGIN_SRC R :session :file images/R26958Rzc.png  :results output graphics :exports both
+  gen_alphas_population = function(sdX, sdY) {
+      mu = 10
+      n_obs = 100
+      n_samples = 1000
+
+      ## generate bootstrapped samples of X and Y
+      X_samples = lapply(1:n_samples, function(a) rnorm(n=n_obs, mean=mu, sd=sdX))
+      Y_samples = lapply(1:n_samples, function(a) rnorm(n=n_obs, mean=mu, sd=sdY))
+
+      alphas = mapply(calc_alpha, X_samples, Y_samples)
+      return(alphas)
+  }
+
+  alphas1 = gen_alphas_population(1, 2)
+  alphas2 = gen_alphas_population(1, 3)
+  alphas3 = gen_alphas_population(1, 4)
+  ggplot() + geom_histogram(aes(x=alphas1, fill='(1,2)'), alpha=0.4) +
+      geom_histogram(aes(x=alphas2, fill='(1,3)'), alpha=0.4) +
+      geom_histogram(aes(x=alphas3, fill='(1,4)'), alpha=0.4) +
+      xlab("alpha")
+#+END_SRC
+
+
+Means and sd:
+#+BEGIN_SRC R :session :results output :exports both
+  cat(sprintf("(1,2): mean = %f, sd = %f\n", mean(alphas1), sd(alphas1)))
+  cat(sprintf("(1,3): mean = %f, sd = %f\n", mean(alphas2), sd(alphas2)))
+  cat(sprintf("(1,4): mean = %f, sd = %f\n", mean(alphas3), sd(alphas3)))
+#+END_SRC

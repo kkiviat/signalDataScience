@@ -1,0 +1,411 @@
+* Reservoir sampling
+Method of reading in n data items one by one for unknown n, and choosing a random sample of k items
+
+#+BEGIN_SRC R :session :results output :exports both
+  reservoir = function(v, k) {
+      r = v[1:k]
+      for (i in (k+1):length(v)) {
+          j = floor(runif(1, min=1, max=i+1))
+          if (j <= k) {
+              r[j] = v[i]
+          }
+      }
+      return(r)
+  }
+
+  ## run multiple times and track how many times each value appears
+  df = data.frame(count = integer(20))
+  n = 10000
+  for (i in 1:n) {
+      for (val in reservoir(1:20, 5)) {
+          df[val, 'count'] = df[val, 'count'] + 1
+      }
+  }
+  df$freq = df$count/n
+  df
+  ## all have approximately the same frequency
+#+END_SRC
+
+* Permutations
+Naive recursive permutation generation
+#+BEGIN_SRC R :session :results output :exports both
+  perm_naive = function(n) {
+      if (n == 1) return(1)
+      if (n == 2) return(list(c(1,2), c(2,1)))
+      prev_perms = perm_naive(n-1)
+      perm_list = vector(mode="list", length=length(prev_perms)*n)
+      for (i in 1:length(prev_perms)) {
+          base_perm = prev_perms[[i]]
+          base_index = (i-1)*n # index-1 of first permutation generated from this base
+          perm_list[[base_index + 1]] = append(n, base_perm)
+          for (j in 2:(n-1)) {
+              perm_list[[base_index + j]] = append(base_perm[1:j-1], append(n, base_perm[j:length(base_perm)]))
+          }
+          perm_list[[base_index + n]] = append(base_perm, n)
+      }
+      return(perm_list)
+  }
+
+  perm_naive(3)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+[[1]]
+[1] 3 1 2
+
+[[2]]
+[1] 1 3 2
+
+[[3]]
+[1] 1 2 3
+
+[[4]]
+[1] 3 2 1
+
+[[5]]
+[1] 2 3 1
+
+[[6]]
+[1] 2 1 3
+#+end_example
+
+More efficient generation of permutation in lexicographic order
+#+BEGIN_SRC R :session :results output :exports both
+  perm_lexico = function(n) {
+      a = 1:n
+      perms = vector(mode="list", length=factorial(n))
+      perms[[1]] = a
+      perm_index = 2
+      k = n-1
+      while (k > 0) {
+          ## find the largest l > k s.t. a[k] < a[l]
+          for (l in length(a):(k+1)) {
+              if (a[k] < a[l]) break
+          }
+          temp = a[l]
+          a[l] = a[k]
+          a[k] = temp
+
+          ## reverse the end of the list from k+1 on
+          a[(k+1):length(a)] = a[length(a):(k+1)]
+          perms[[perm_index]] = a
+          perm_index = perm_index + 1
+          
+          ## find the largest k s.t. a[k] < a[k+1]
+          k = 0
+          for (i in 1:(length(a)-1)) {
+              if (a[i] < a[i+1]) k = i
+          }
+      }
+      return(perms)
+  }
+
+  perm_lexico(4)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+[[1]]
+[1] 1 2 3 4
+
+[[2]]
+[1] 1 2 4 3
+
+[[3]]
+[1] 1 3 2 4
+
+[[4]]
+[1] 1 3 4 2
+
+[[5]]
+[1] 1 4 2 3
+
+[[6]]
+[1] 1 4 3 2
+
+[[7]]
+[1] 2 1 3 4
+
+[[8]]
+[1] 2 1 4 3
+
+[[9]]
+[1] 2 3 1 4
+
+[[10]]
+[1] 2 3 4 1
+
+[[11]]
+[1] 2 4 1 3
+
+[[12]]
+[1] 2 4 3 1
+
+[[13]]
+[1] 3 1 2 4
+
+[[14]]
+[1] 3 1 4 2
+
+[[15]]
+[1] 3 2 1 4
+
+[[16]]
+[1] 3 2 4 1
+
+[[17]]
+[1] 3 4 1 2
+
+[[18]]
+[1] 3 4 2 1
+
+[[19]]
+[1] 4 1 2 3
+
+[[20]]
+[1] 4 1 3 2
+
+[[21]]
+[1] 4 2 1 3
+
+[[22]]
+[1] 4 2 3 1
+
+[[23]]
+[1] 4 3 1 2
+
+[[24]]
+[1] 4 3 2 1
+#+end_example
+
+* Sorting and Selecting
+** Merge sort
+#+BEGIN_SRC R :session :results output :exports both
+  merge = function(x, y) {
+      merged = vector(mode="list", length=length(x)+length(y))
+      x_index = 1
+      y_index = 1
+      merged_index = 1
+      while (merged_index <= length(merged)) {
+          if (x_index > length(x)) {
+              merged[merged_index:length(merged)] = y[y_index:length(y)]
+              break
+          } else if (y_index > length(y)) {
+              merged[merged_index:length(merged)] = x[x_index:length(x)]
+              break
+          }
+          
+          if (x[x_index] < y[y_index]) {
+              merged[merged_index] = x[x_index]
+              x_index = x_index + 1
+          } else {
+              merged[merged_index] = y[y_index]
+              y_index = y_index + 1
+          }
+          merged_index = merged_index + 1
+      }
+      return(unlist(merged))
+  }
+  merge(c(1,2,4,5), c(3,5,9))
+
+  merge_sort = function(L) {
+      if (length(L) <= 1) return(L)
+      midpoint = floor(length(L)/2)
+      a = L[1:midpoint]
+      b = L[(midpoint+1):length(L)]
+      a = merge_sort(a)
+      b = merge_sort(b)
+      return(merge(a, b))
+  }
+
+  merge_sort(c(2,4,1,2,3))
+#+END_SRC
+
+#+RESULTS:
+: [1] 1 2 3 4 5 5 9
+: [1] 1 2 2 3 4
+
+** Quicksort
+#+BEGIN_SRC R :session :results output :exports both
+  quicksort = function(L) {
+      if (length(L) <= 1) return(L)
+      pivot = sample(1:length(L), 1)
+      lesser = Filter(function(x) x < L[pivot], L)
+      greater = Filter(function(x) x > L[pivot], L)
+      equal = Filter(function(x) x == L[pivot], L)
+      return(append(quicksort(lesser), append(equal, quicksort(greater))))
+  }
+  quicksort(c(2,4,1,2,3))
+#+END_SRC
+
+#+RESULTS:
+: [1] 1 2 2 3 4
+
+** Quickselect
+#+BEGIN_SRC R :session :results output :exports both
+  quickselect = function(L, k) {
+        if (length(L) <= 1) return(L)
+        pivot = sample(1:length(L), 1)
+        lesser = Filter(function(x) x < L[pivot], L)
+        greater = Filter(function(x) x > L[pivot], L)
+        equal = Filter(function(x) x == L[pivot], L)
+        if (length(lesser) >= k) { # kth smallest is in smaller section
+            return(quickselect(lesser, k))
+        } else if (length(lesser) + length(equal) >= k) { # kth smallest is in equal group
+            return(L[pivot])
+        } else {
+            elements_removed = length(lesser) + length(equal)
+            return(quickselect(greater, k - elements_removed))
+        }
+  }
+  quickselect(c(4,1,5,9), 3)
+#+END_SRC
+
+#+RESULTS:
+: [1] 5
+
+* Modular exponentiation
+#+BEGIN_SRC R :session :results output :exports both
+  ## naive version
+  pow1 = function(a,b,c) {
+      return(a^b %% c)
+  }
+  pow1(6,17,7) # 6
+  pow1(50,67,39) # 2 (but loss of accuracy)
+
+  pow2 = function(a,b,c) {
+      ans = a
+      if (b == 1) return(a %% c)
+      for (i in 2:b) {
+          ans = (ans * a) %% c
+      }
+      return(ans)
+  }
+  pow2(6,17,7) # 6
+  pow2(50,67,39) # 2
+
+  ## returns vector of non-zero exponents of base 2 decomposition
+  decompose = function(n) {
+      ## compute all powers of 2 less than n
+      powers = vector(mode="integer", length=floor(log(n, base=2) + 1))
+      i = 0
+      for (i in 0:floor(log(n, base=2))) {
+          powers[i+1] = 2^i
+      }
+
+      ## powers[i] = 2^{i-1}
+      exponents = c()
+      exp_index = 1
+      power_index = length(powers)
+      while (n > 0) {
+          while (powers[power_index] > n) power_index = power_index - 1
+          exponents[exp_index] = power_index - 1
+          exp_index = exp_index + 1
+          n = n - powers[power_index]
+      }
+      return(exponents)
+  }
+
+  pow3 = function(a, b, c) {
+
+      ## compute a vector with a^(2^0), a^(2^1), a^(2^2), ..., a^(2^(log_2(b))) all mod c
+      ## avoids loss of accuracy from excessively large numbers
+      powers = c()
+      pow = a
+      for (i in 0:floor(log(b, base=2))) {
+          powers = c(powers, pow)
+          pow = (pow * pow) %% c
+      }
+
+      ## powers[i] = a^(2^(i-1))
+      ans = 1
+      for (exp in decompose(b)) {
+          ans = (ans * powers[exp+1]) %% c
+      }
+      return(ans)
+  }
+
+  pow3(6,17,7) # 6
+  pow3(50,67,39) # 2
+
+  ## timing
+  a = 500
+  b = 20
+  c = 390
+  system.time(replicate(10e3, pow1(a,b,c)))
+  system.time(replicate(10e3, pow2(a,b,c)))
+  system.time(replicate(10e3, pow3(a,b,c))) # not faster than 2
+
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+[1] 6
+[1] 0
+Warning message:
+In pow1(50, 67, 39) : probable complete loss of accuracy in modulus
+[1] 6
+[1] 2
+[1] 6
+[1] 2
+   user  system elapsed 
+  0.482   0.001   0.485 
+There were 50 or more warnings (use warnings() to see the first 50)
+   user  system elapsed 
+  0.069   0.000   0.069
+   user  system elapsed 
+  0.159   0.000   0.163
+#+end_example
+
+* edit distance
+Levenshtein distance (number of insertions, deletions or substitutions to transform string s into string t)
+#+BEGIN_SRC R :session :results output :exports both
+  lev = function(s, t) {
+      m = matrix(0, nrow=nchar(s)+1, ncol=nchar(t)+1)
+      ## distances to empty string
+      m[, 1] = 0:nchar(s)
+      m[1, ] = 0:nchar(t)
+      for (i in 2:(nchar(s)+1)) {
+          for (j in 2:(nchar(t)+1)) {
+              c = ifelse(substr(s, i-1, i-1) == substr(t, j-1, j-1), 0, 1)
+              m[i, j] = min(m[i-1,j]+1, m[i,j-1]+1, m[i-1,j-1] + c)
+          }
+      }
+      return(m[nchar(s)+1, nchar(t)+1])
+  }
+  lev("kitten", "sitting")
+  lev("relevant", "elephant")
+#+END_SRC
+
+#+RESULTS:
+: [1] 3
+: [1] 3
+
+Damerau-Levenshtein is the same except it also allows transposition of two adjacent characters.
+
+#+BEGIN_SRC R :session :results output :exports both
+  lev_dam = function(s, t) {
+      m = matrix(0, nrow=nchar(s)+1, ncol=nchar(t)+1)
+      ## distances to empty string
+      m[, 1] = 0:nchar(s)
+      m[1, ] = 0:nchar(t)
+      for (i in 2:(nchar(s)+1)) {
+          for (j in 2:(nchar(t)+1)) {
+              c = ifelse(substr(s, i-1, i-1) == substr(t, j-1, j-1), 0, 1)
+              if (i >= 2 && j >= 2 && substr(s, i-1, i-1) == substr(t, j-2, j-2)
+                  && substr(s, i-2, i-2) == substr(t, j-1, j-1)) {
+                  m[i, j] = min(m[i-1,j]+1, m[i,j-1]+1, m[i-1,j-1] + c, m[i-2,j-2]+c)
+              } else {
+                  m[i, j] = min(m[i-1,j]+1, m[i,j-1]+1, m[i-1,j-1] + c)
+              }
+          }
+      }
+      return(m[nchar(s)+1, nchar(t)+1])
+  }
+  lev_dam("teacup", "taecop")
+#+END_SRC
+
+#+RESULTS:
+: [1] 2
+

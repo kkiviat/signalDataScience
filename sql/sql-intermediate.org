@@ -1,0 +1,375 @@
+* Company data
+** Get the data
+#+BEGIN_SRC sh
+  sqlite3 data/company.db < data/company.sql
+#+END_SRC
+
+#+RESULTS:
+
+** Set db file
+Now using :db (print db) in the header of sqlite code blocks will set this as the database
+#+BEGIN_SRC emacs-lisp
+  (setq db "data/company.db")
+#+END_SRC
+
+#+RESULTS:
+: data/company.db
+
+** Output the names of employees that Oliver Warbucks directly supervises
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Name FROM records 
+  WHERE Supervisor='Oliver Warbucks';
+#+END_SRC
+
+#+RESULTS:
+| Name            |
+| Ben Bitdiddle   |
+| DeWitt Aull     |
+| Eben Scrooge    |
+| Oliver Warbucks |
+
+** Output all information about self-supervising employees
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT * FROM records WHERE Name=Supervisor
+#+END_SRC
+
+#+RESULTS:
+| Name            | Division       | Title     | Salary | Supervisor      |
+| Oliver Warbucks | Administration | Big Wheel | 150000 | Oliver Warbucks |
+
+** Output names of all employees with salary greater than 50000 in alphabetical order
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Name FROM records WHERE Salary > 50000 ORDER BY Name;
+#+END_SRC
+
+#+RESULTS:
+| Name            |
+| Ben Bitdiddle   |
+| Eben Scrooge    |
+| Oliver Warbucks |
+
+** Output table with columns: employee, salary, supervisor, supervisor's salary, containing all supervisors who earn more than twice as much as the employee
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT e.Name, e.Salary, e.Supervisor, s.Salary
+  FROM records e JOIN records s ON e.Supervisor=s.Name
+  WHERE s.Salary > 2*e.Salary;
+#+END_SRC
+
+#+RESULTS:
+| Name            | Salary | Supervisor      | Salary |
+| Ben Bitdiddle   |  60000 | Oliver Warbucks | 150000 |
+| DeWitt Aull     |  25000 | Oliver Warbucks | 150000 |
+| Lem E Tweakit   |  25000 | Ben Bitdiddle   |  60000 |
+| Robert Cratchet |  18000 | Eben Scrooge    |  75000 |
+
+** Output names of employees whose supervisor is in a different division
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT e.Name
+  FROM records e JOIN records s ON e.Supervisor=s.Name
+  WHERE e.Division <> s.Division;
+#+END_SRC
+
+#+RESULTS:
+| Name          |
+| Ben Bitdiddle |
+| Eben Scrooge  |
+
+** Output meeting days and times of all employees directly supervised by Oliver Warbucks
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Day, Time FROM meetings
+  WHERE Division IN (SELECT Division FROM records WHERE Supervisor='Oliver Warbucks');
+#+END_SRC
+
+#+RESULTS:
+| Day       | Time |
+| Monday    | 9am  |
+| Monday    | 11am |
+| Thursday  | 1pm  |
+| Wednesday | 4pm  |
+
+or to attach names to the meetings:
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Name, Day, Time
+  FROM records r JOIN meetings m ON r.Division=m.Division
+  WHERE Supervisor='Oliver Warbucks';
+#+END_SRC
+
+#+RESULTS:
+| Name            | Day       | Time |
+| Ben Bitdiddle   | Wednesday | 4pm  |
+| DeWitt Aull     | Monday    | 11am |
+| DeWitt Aull     | Thursday  | 1pm  |
+| Eben Scrooge    | Monday    | 9am  |
+| Oliver Warbucks | Monday    | 11am |
+| Oliver Warbucks | Thursday  | 1pm  |
+
+** Output all names of middle managers (people who supervise someone and are supervised)
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Name FROM records
+  WHERE Name != Supervisor
+    AND Name IN (SELECT Supervisor FROM records);
+#+END_SRC
+
+#+RESULTS:
+| Name            |
+| Alyssa P Hacker |
+| Ben Bitdiddle   |
+| Eben Scrooge    |
+
+** Get names of all employees who have a meeting on the same day as their supervisor
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT DISTINCT e.Name
+  FROM records e JOIN records s ON e.supervisor=s.Name
+                 JOIN meetings me ON e.Division=me.Division
+                 JOIN meetings ms ON s.Division=ms.Division
+  WHERE me.Day=ms.Day;
+#+END_SRC
+
+#+RESULTS:
+| Name            |
+| Alyssa P Hacker |
+| Cy D Fect       |
+| DeWitt Aull     |
+| Eben Scrooge    |
+| Lem E Tweakit   |
+| Louis Reasoner  |
+| Oliver Warbucks |
+| Robert Cratchet |
+
+** Output each supervisor and the sum of salaries of all of each supervisor's employees
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Supervisor, SUM(Salary) FROM records
+  GROUP BY Supervisor;
+#+END_SRC
+
+#+RESULTS:
+| Supervisor      | SUM(Salary) |
+| Alyssa P Hacker |       30000 |
+| Ben Bitdiddle   |      100000 |
+| Eben Scrooge    |       18000 |
+| Oliver Warbucks |      310000 |
+
+** Output all salaries that appear more than once in the employee records
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Salary FROM records
+  GROUP BY Salary
+  HAVING COUNT(*) > 1;
+#+END_SRC
+
+#+RESULTS:
+| Salary |
+|  25000 |
+
+* Recursive WITH statements
+** Print out the factorial of the numbers 0 to 10
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH num(n, f) AS (
+  SELECT 0, 1 UNION
+  SELECT n+1, (n+1)*f FROM num WHERE n <= 10
+  )
+  SELECT * FROM num;
+#+END_SRC
+
+#+RESULTS:
+|  n |        f |
+|  0 |        1 |
+|  1 |        1 |
+|  2 |        2 |
+|  3 |        6 |
+|  4 |       24 |
+|  5 |      120 |
+|  6 |      720 |
+|  7 |     5040 |
+|  8 |    40320 |
+|  9 |   362880 |
+| 10 |  3628800 |
+| 11 | 39916800 |
+
+** Group natural numbers in 3-number-long sequences
+Should generate this output:
+|  0 |  1 |  2 |
+|  3 |  4 |  5 |
+|  6 |  7 |  8 |
+|  9 | 10 | 11 |
+| 12 | 13 | 14 |
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH num(a, b, c) AS (
+  SELECT 0, 1, 2 UNION
+  SELECT a+3, b+3, c+3 FROM num WHERE a <= 9
+  )
+  SELECT * FROM num;
+#+END_SRC
+
+#+RESULTS:
+|  a |  b |  c |
+|  0 |  1 |  2 |
+|  3 |  4 |  5 |
+|  6 |  7 |  8 |
+|  9 | 10 | 11 |
+| 12 | 13 | 14 |
+
+* Presidential dogs
+** Get the data
+#+BEGIN_SRC sh
+  sqlite3 data/dogs.db < data/dogs.sql
+#+END_SRC
+
+#+RESULTS:
+
+** Get names of all dogs with a parent, ordered by height of the parent from tallest to shortest
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT d.name
+  FROM dogs d JOIN parents ON d.name=parents.child
+              JOIN dogs p ON parents.parent=p.name
+  ORDER BY p.height DESC;
+#+END_SRC
+
+#+RESULTS:
+| name     |
+| herbert  |
+| fillmore |
+| abraham  |
+| delano   |
+| grover   |
+| barack   |
+| clinton  |
+
+** Create a single string for every pair of siblings that have the same size, where each value is a sentence describing the siblings by their size, and each sibling pair only appears once in alphabetical order
+Expected output:
+
+=barack and clinton are standard siblings=
+
+=abraham and grover are toy siblings=
+#+BEGIN_SRC sqlite :db (print db)
+  WITH siblings AS (
+       SELECT x.child AS name1, d1.height AS height1, y.child AS name2, d2.height AS height2
+       FROM parents x JOIN parents y ON x.parent=y.parent
+                      JOIN dogs d1 ON x.child=d1.name
+                      JOIN dogs d2 ON y.child=d2.name
+       WHERE name1 < name2
+  )
+  SELECT name1 || " and " || name2 || " are " || s1.size || " siblings"
+  FROM siblings AS s JOIN sizes s1 ON (s.height1 > s1.min AND s.height1 <= s1.max)
+                     JOIN sizes s2 ON (s.height2 > s2.min AND s.height2 <= s2.max)
+  WHERE s1.size = s2.size;
+#+END_SRC
+
+#+RESULTS:
+| barack and clinton are standard siblings |
+| abraham and grover are toy siblings      |
+
+** Create a table describing all stacks of 4 dogs at least 170 cm high
+The first column should contain a comma-separated list of dogs in the stack, and the second column should contain the total height of the stack. Order the stacks in increasing order of total height. A valid stack of dogs includes each dog only once, and the dogs should be listed in increasing order of height within the stack. *Assume no two dogs have the same height.*
+
+Expected output:
+#+BEGIN_SRC verbatim
+abraham, delano, clinton, barack|171
+grover, delano, clinton, barack|173
+herbert, delano, clinton, barack|176
+fillmore, delano, clinton, barack|177
+eisenhower, delano, clinton, barack|180
+#+END_SRC
+
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH stacks4 AS (
+       SELECT d1.name||", "||
+              d2.name||", "||
+              d3.name||", "||
+              d4.name AS list, d1.height+d2.height+d3.height+d4.height AS height
+       FROM dogs d1 JOIN dogs d2 JOIN dogs d3 JOIN dogs d4
+       WHERE d1.height < d2.height
+       AND d2.height < d3.height
+       AND d3.height < d4.height
+  )
+  SELECT * FROM stacks4
+  WHERE height >= 170
+  ORDER BY height ASC;
+#+END_SRC
+
+#+RESULTS:
+| list                                | height |
+| abraham, delano, clinton, barack    |    171 |
+| grover, delano, clinton, barack     |    173 |
+| herbert, delano, clinton, barack    |    176 |
+| fillmore, delano, clinton, barack   |    177 |
+| eisenhower, delano, clinton, barack |    180 |
+
+or without a WITH:
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT d1.name||", "||
+         d2.name||", "||
+         d3.name||", "||
+         d4.name AS list,                 d1.height+d2.height+d3.height+d4.height AS stack_height
+  FROM dogs d1 JOIN dogs d2 ON d1.height < d2.height
+               JOIN dogs d3 ON d2.height < d3.height
+               JOIN dogs d4 ON d3.height < d4.height
+  WHERE stack_height >= 170
+  ORDER BY stack_height ASC;
+#+END_SRC
+
+#+RESULTS:
+| list                                | stack_height |
+| abraham, delano, clinton, barack    |          171 |
+| grover, delano, clinton, barack     |          173 |
+| herbert, delano, clinton, barack    |          176 |
+| fillmore, delano, clinton, barack   |          177 |
+| eisenhower, delano, clinton, barack |          180 |
+
+or with a recursive solution:
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH stacks(list, topdogHeight, height, n) AS (
+       SELECT name, height, height, 1 FROM dogs UNION
+       SELECT s.list||", "||d.name, d.height, s.height+d.height, n+1
+       FROM stacks s JOIN dogs d ON (s.topdogHeight < d.height)
+       WHERE n < 4
+  )
+  SELECT list, height FROM stacks WHERE n = 4 AND height >= 170 ORDER BY height ASC;
+#+END_SRC
+
+#+RESULTS:
+| list                                | height |
+| abraham, delano, clinton, barack    |    171 |
+| grover, delano, clinton, barack     |    173 |
+| herbert, delano, clinton, barack    |    176 |
+| fillmore, delano, clinton, barack   |    177 |
+| eisenhower, delano, clinton, barack |    180 |
+
+** Get all pairs forming non-parent relations ordered by height difference, with shortest paired with tallest first, and tallest paired with shortest last.
+#+BEGIN_SRC sqlite :db (print db)
+  WITH relation_pairs(d1, d2, dist) AS (
+       SELECT parent, child, 1 FROM parents UNION
+       SELECT parent, d2, dist+1
+       FROM relation_pairs JOIN parents ON child=d1
+  ),
+  all_relation_pairs(d1, d2, dist) AS (
+       SELECT d1, d2, dist FROM relation_pairs UNION
+       SELECT d2, d1, dist FROM relation_pairs
+  )
+  SELECT d1, d2
+  FROM all_relation_pairs JOIN dogs x ON d1=x.name
+                          JOIN dogs y ON d2=y.name
+  WHERE dist > 1
+  ORDER BY x.height-y.height;
+#+END_SRC
+
+#+RESULTS:
+| fillmore   | barack     |
+| eisenhower | barack     |
+| fillmore   | clinton    |
+| eisenhower | clinton    |
+| eisenhower | delano     |
+| abraham    | eisenhower |
+| grover     | eisenhower |
+| herbert    | eisenhower |
+| herbert    | fillmore   |
+| fillmore   | herbert    |
+| eisenhower | herbert    |
+| eisenhower | grover     |
+| eisenhower | abraham    |
+| delano     | eisenhower |
+| clinton    | eisenhower |
+| clinton    | fillmore   |
+| barack     | eisenhower |
+| barack     | fillmore   |
+
+

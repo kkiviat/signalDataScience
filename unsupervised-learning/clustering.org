@@ -1,0 +1,419 @@
+* Get the data
+Load and scale the data:
+#+BEGIN_SRC R :session :results output :exports code
+  library(readr)
+  protein_data = read_delim("../datasets/protein-consumption/protein.txt", delim="\t")
+
+  ## scale the data
+  protein_df = scale(protein_data[-1])
+  rownames(protein_df) = protein_data$Country
+#+END_SRC
+
+Create a distance matrix
+#+BEGIN_SRC R :session :results output :exports code
+  dist_mat = dist(protein_df, method="euclidean")
+#+END_SRC
+
+
+* Agglomerative hierarchical clustering
+** Using hclust()
+First we will use Ward's method, which minimizes the total within-cluster variance. According to [[https://stats.stackexchange.com/a/109958][this]] stack exchange answer, ward.D is not a correct implementation of the Ward algorithm, but can be used if the Euclidean distances are squared beforehand. Otherwise, one should use Ward.D2, which does the squaring itself.
+#+BEGIN_SRC R :session :file images/R2809LCx.png :results output graphics :exports both
+  h_clusters = hclust(dist_mat, method="ward.D2")
+  plot(h_clusters)
+#+END_SRC
+
+
+From this image, it looks like a good place to split is into 5 or 6 clusters. The countries seem to cluster mostly geographically, as: Central Europe (+ USSR), Northern Europe, Western Europe, Eastern Europe and Southern Europe.
+
+We can select the cutoff point as follows:
+#+BEGIN_SRC R :session :results output :exports both
+  print_clusters = function(labels, k) {
+      for (i in 1:k) {
+          print(paste("cluster", i))
+          print(protein_data[labels == i, c("Country", "RedMeat", "Fish", "Fr&Veg")])
+      }
+  }
+
+  k=5
+  c_tree = cutree(h_clusters, k)
+  print_clusters(c_tree, k)
+#+END_SRC
+
+
+We can use clusplot to visualize the results of clustering
+#+BEGIN_SRC R :session :file images/R2809KWG.png :results output graphics :exports both
+  library(cluster)
+  clusplot(protein_df, c_tree, color=TRUE, shade=TRUE, labels=2, lines=0)
+#+END_SRC
+
+
+This function will take in a distance matrix, clustering method, and number of clusters k. It will call hclust with this data and method, then use cutree to get k clusters, then plot the result with clusplot.
+
+#+BEGIN_SRC R :session :results output :exports both
+  hclust_plot = function(d, method, k, df) {
+      hc = hclust(d, method)
+      ct = cutree(hc, k)
+      clusplot(df, ct, color=TRUE, shade=TRUE, labels=2, lines=0)
+  }
+#+END_SRC
+
+
+Let's run it for different values of k:
+#+BEGIN_SRC R :session :file images/R2809kqS.png :results output graphics :exports both
+  hclust_plot(dist_mat, "ward.D2", 2, protein_df)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809bd0.png :results output graphics :exports both
+  hclust_plot(dist_mat, "ward.D2", 3, protein_df)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809axJ.png :results output graphics :exports both
+  hclust_plot(dist_mat, "ward.D2", 4, protein_df)
+#+END_SRC
+
+
+Just based on these images, 4 clusters seems more reasonable than 5, since the 5th cluster appears to mostly be a subset of another. However, these plots only show the direction on the first 2 principal components, so there may be meaningful separation in the other components.
+
+** Validating the clusters
+The pvclust package will run bootstrap sampling on the data, comparing the resulting dendograms to compute p-values. Presumably by determining how frequently a cluster appears in resampled data.
+#+BEGIN_SRC R :session :file images/R2809--e.png :results output graphics :exports both
+  library(pvclust)
+  pv = pvclust(t(protein_df), method.hclust="ward.D2", method.dist="euclidean")
+  plot(pv)
+  pvrect(pv)
+#+END_SRC
+
+
+We can change the threshold alpha for p-values. pvrect highlights the largest clusters with AU p-values greater than alpha.
+#+BEGIN_SRC R :session :file images/R2809YTr.png :results output graphics :exports both
+  plot(pv)
+  pvrect(pv, alpha=0.9)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809YTs.png :results output graphics :exports both
+  plot(pv)
+  pvrect(pv, alpha=0.99)
+#+END_SRC
+
+
+The Central Europe, Northern Europe, and Romania/Yugoslavia clusters are the only ones that remain with alpha=0.99. Lowering alpha to 0.9 gives back the whole Western Europe cluster. 
+
+* K-means clustering
+** Using kmeans()
+Run k-means with k=5 and look at the clusters.
+#+BEGIN_SRC R :session :results output :exports both
+  set.seed(15)
+  km = kmeans(protein_df, centers=5)
+  split(rownames(protein_df), km$cluster)
+#+END_SRC
+
+
+We have the same Northern and Southern Europe clusters as before, and one cluster that is a subset of the Western Europe cluster from before. However, the rest of the Western Europe cluster merged with some of the former Central Europe cluster's countries, while Hungary and USSR joined the rest of Eastern Europe.
+
+This function will take in a data matrix and number of clusters, and run k-means on the data and plot the result.
+#+BEGIN_SRC R :session :results output :exports both
+  kmeans_plot = function(data, k) {
+      km = kmeans(data, k)
+      clusplot(data, km$cluster, color=TRUE, shade=TRUE, labels=2, lines=0)
+  }
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809-FT.png :results output graphics :exports both
+  kmeans_plot(protein_df, 5)
+#+END_SRC
+
+
+We will run this a few more times to see how the results compare:
+#+BEGIN_SRC R :session :file images/R2809Yaf.png :results output graphics :exports both
+  kmeans_plot(protein_df, 5)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809yur.png :results output graphics :exports both
+  kmeans_plot(protein_df, 5)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809xCB.png :results output graphics :exports both
+  kmeans_plot(protein_df, 5)
+#+END_SRC
+
+
+The Eastern European countries in the upper right always seem to end up together, but sometimes they are also clustered with Hungary and USSR, and even Greece and Italy. Spain and Portugal are always in the same cluster, but sometimes that cluster included Greece and Italy, and sometimes it doesn't. 
+
+The Northern Europe cluster seems quite stable, but the Central and Western clusters shift around quite a bit. 
+
+Let's try the same with k = 2.
+#+BEGIN_SRC R :session :file images/R2809LXN.png :results output graphics :exports both
+  kmeans_plot(protein_df, 2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809lrZ.png :results output graphics :exports both
+  kmeans_plot(protein_df, 2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809__l.png :results output graphics :exports both
+  kmeans_plot(protein_df, 2)
+#+END_SRC
+
+
+These are all turning out the same, with essentially North and West in one cluster, and East and South in the other.
+
+Now let's see what happens if we add an artificial outline with extreme values.
+#+BEGIN_SRC R :session :file images/R2809ZUy.png :results output graphics :exports both
+  set.seed(1)
+  protein_df_outlier = rbind(protein_data, list("Ecktopia", 0, 0, 0, 0, 0, 100, 40, 40, 60))
+  protein_df_outlier_scaled = scale(protein_df_outlier[-1])
+  rownames(protein_df_outlier_scaled) = protein_df_outlier$Country
+  kmeans_plot(protein_df_outlier_scaled, 5)
+#+END_SRC
+
+
+The Northern Europe cluster seems to always survive. Keeping the 5-cluster requirement created Western, Central, and Eastern/Southern clusters, plus one for the outlier. 
+
+If we switch to 6 clusters:
+#+BEGIN_SRC R :session :file images/R2809YoH.png :results output graphics :exports both
+  kmeans_plot(protein_df_outlier_scaled, 6)
+#+END_SRC
+
+
+Here Spain and Portugal have split off into their own cluster, with the rest remaining the same.
+** Validating choice of k
+#+BEGIN_SRC R :session :results output :exports code
+  library(fpc)
+  k_ch = kmeansruns(protein_df, krange=1:10, criterion="ch")
+  k_asw = kmeansruns(protein_df, krange=1:10, criterion="asw")
+#+END_SRC
+
+
+Now we will plot the two clustering criteria against k.
+
+#+BEGIN_SRC R :session :file images/R2809y8T.png :results output graphics :exports both
+  library(ggplot2)
+  library(Rmisc)
+  p1 = ggplot() + geom_point(aes(1:10, k_ch$crit), color="red") +
+      xlab("K") + ylab("clustering quality") + ggtitle("Calinski-Harabasz measure")
+  p2 = ggplot() + geom_point(aes(1:10, k_asw$crit), color="blue") +
+      xlab("K") + ylab("clustering quality") + ggtitle("Average silhouette width measure")
+  multiplot(p1, p2)
+#+END_SRC
+
+
+According to this it seems like k=2 is the best value. It is by far the highest quality by ch, and only slightly below the highest for asw. 
+
+clusterboot() will use bootstrap sampling, running k-means on each sample, and measure how often clusters are "dissolved".
+#+BEGIN_SRC R :session :results output :exports code
+  cb = clusterboot(protein_df, clustermethod=kmeansCBI, runs=100, iter.max=100, krange=5)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  print("clusters:")
+  split(rownames(protein_df), cb$result$partition)
+  print("")
+  print("stability of clusters")
+  cb$bootmean
+  print("")
+  print("number of times dissolved")
+  cb$bootbrd
+#+END_SRC
+
+
+Cluster 2 is fairly weak, with the lowest stability and the greatest number of times dissolved by a large margin. This may not mean it is a weak cluster, it's just not as strong as the others.
+
+* Mixture models
+** Get the data
+For this, we will use data on the waiting times between Old Faithful eruptions.
+#+BEGIN_SRC R :session :results output :exports code
+  library(datasets)
+  df_faithful = faithful
+#+END_SRC
+
+
+Here is a histogram of the waiting times between eruptions
+#+BEGIN_SRC R :session :file images/R2809zvy.png :results output graphics :exports both
+  ggplot(df_faithful, aes(x=waiting)) + geom_histogram()
+#+END_SRC
+
+
+It seems reasonable to model this as a mix of two gaussians, since there are two distinct peaks that each appear roughly normal.
+
+#+BEGIN_SRC R :session :file images/R2809yDI.png :results output graphics :exports both
+  ggplot(df_faithful, aes(x=eruptions)) + geom_histogram()
+#+END_SRC
+
+
+The eruptions might also be able to be modeled as two gaussians, although both of these peaks seem slightly skewed.
+
+** Univariate mixture models
+#+BEGIN_SRC R :session :file images/R2809Zbm.png :results output graphics :exports both
+  library(mixtools)
+  waiting_mix = normalmixEM(df_faithful$waiting)
+  par(mfrow=c(2,1))
+  plot(waiting_mix, whichplots=1) ## log-likelihood
+  plot(waiting_mix, whichplots=2) ## density
+#+END_SRC
+
+
+The density curves look like a good fit to the data, although the mean of the left cluster looks like it's a bit to the left of the gaussian's mean.
+
+Let's look at how the final parameters vary with a few runs of normalmixEM()
+#+BEGIN_SRC R :session :results output :exports both
+  n_trials = 4
+  lapply(1:n_trials, function(i) summary(normalmixEM(df_faithful$waiting)))
+#+END_SRC
+
+
+The parameters are virtually identical every time. The number of iterations to converge ranged from 19-34.
+
+Now, let's see what happens if we try to fit 3 gaussians.
+#+BEGIN_SRC R :session :file images/R2809MYU.png :results output graphics :exports both
+  set.seed(1)
+  mix1 = normalmixEM(df_faithful$waiting, k=3)
+  mix2 = normalmixEM(df_faithful$waiting, k=3)
+  par(mfrow=c(2,1))
+  plot(mix1, whichplots=2)
+  plot(mix2, whichplots=2)
+#+END_SRC
+
+
+It came up with very different results in these two attempts. The first turned the right-hand side of the left cluster into two clusters, while the second was essentially just the two clusters, with a tiny additional gaussian on the far right.
+
+The above assumed that the data were generated from normal distributions. If we want to relax that assumption a bit, we can use semi-parametric models, which just assume the distributions are symmetric with some allowed complexity specified by the bandwidth.
+
+Below are a few plots, experimenting with different numbers of models and bandwidths.
+
+#+BEGIN_SRC R :session :file images/R2809msg.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=1, bw=1)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809ABt.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=2, bw=1)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809_UC.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=3, bw=1)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809ZpO.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=2, bw=10)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809z9a.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=2, bw=0.5)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809NSn.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=4, bw=0.5)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R2809nmz.png :results output graphics :exports both
+  mix = spEMsymloc(df_faithful$waiting, mu0=4, bw=2)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+Increasing the bandwidth or number of models tends to lead to very similar distributions being stacked on top of each other. However, if the bandwidth is low it will fit more models without the stacking. It doesn't seem very likely that any of these models are better descriptions of the true underlying distributions than the normal models. The weird additional spikes it creates don't look like naturally occurring distributions.
+
+Finally, let's compare how the two types of models handle outliers.
+#+BEGIN_SRC R :session :results output :exports code
+  df_faithful_outliers = rbind(df_faithful, list(8, 150), list(1, 20))
+#+END_SRC
+
+
+Gaussian:
+#+BEGIN_SRC R :session :file images/R2809APV.png :results output graphics :exports both
+  set.seed(1)
+  mix = normalmixEM(df_faithful_outliers$waiting, k=2)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+Semi-parametric:
+#+BEGIN_SRC R :session :file images/R2809m6I.png :results output graphics :exports both
+  set.seed(1)
+  mix = spEMsymloc(df_faithful_outliers$waiting, mu0=2, bw=2)
+  plot(mix, whichplots=2)
+#+END_SRC
+
+
+The semi-parametric model seems to do much better with the outlier. It can maintain basically the same two peaks, with small bumps for the outliers. The gaussian mixture, however, becomes much more strangely shaped.
+
+** Multivariate mixture models
+Now we will try to fit the waiting times and eruption times simultaneously with multivariate models. First, let's look at a scatterplot of waiting time vs eruption time.
+#+BEGIN_SRC R :session :file images/R2809ajh.png :results output graphics :exports both
+  ggplot(df_faithful, aes(eruptions, waiting)) + geom_point()
+#+END_SRC
+
+
+There seems to be essentially two clusters here, as well.
+
+#+BEGIN_SRC R :session :file images/R280903t.png :results output graphics :exports both
+  library(mclust)
+  mc = Mclust(scale(df_faithful))
+  plot(mc, what="classification")
+#+END_SRC
+
+
+Apparently this method determined that 3 clusters was better than 2. 
+
+Let's try it on the protein consumption data.
+#+BEGIN_SRC R :session :file images/R2809zLD.png :results output graphics :exports both
+  mc = Mclust(protein_df)
+  plot(mc, what="classification")
+#+END_SRC
+
+
+That is a lot of graphs to interpret. 
+
+White Meat vs Fruits and Veggies seems to have two fairly clear clusters, in the upper left and in the lower right. This is less clear in Red Meat vs Fruits and Veggies, although that still has a clear cluster in the upper left, for high red meat consumption and low fruit & veg consumption. Cereals vs milk has a somewhat strange shape, with a curve ranging from high-cereal/low-milk to low-cereal/low-milk to low-cereal/high/milk. No one seems to be high in both.
+
+#+BEGIN_SRC R :session :file images/R2809NgP.png :results output graphics :exports both
+  mv = mvnormalmixEM(protein_df)
+  plot(mv)
+#+END_SRC
+
+
+Finally, nonparametric methods.
+
+First we'll try it on the Old Faithful data.
+#+BEGIN_SRC R :session :file images/R2809n0b.png :results output graphics :exports both
+  np_faithful = npEM(scale(df_faithful), mu0=2)
+  par(mfrow=c(2,1))
+  plot(np_faithful, blocks=1)
+  plot(np_faithful, blocks=2)
+#+END_SRC
+
+
+This seems to do a good job of capturing each of the variables.
+
+
+#+BEGIN_SRC R :session :file images/R2809BJo.png :results output graphics :exports both
+  set.seed(1)
+  np_protein = npEM(protein_df, mu0=2)
+  n_vars = ncol(protein_df)
+  par(mfrow=c(3,3))
+  lapply(1:n_vars, function(i) plot(np_protein, blocks=i))
+#+END_SRC
+
+
+Some of the coordinates seem like they could have a different number of models. 

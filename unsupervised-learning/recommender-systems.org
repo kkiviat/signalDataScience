@@ -1,0 +1,944 @@
+* Get the data
+The first step is to download the data file and extract the ratings data. When reading in the file, the separator can only be a single character, so we can use gsub first to replace the '::' separators with tab characters. We'll just look at the first 3 columns (User ID, Movie ID, and Rating).
+#+BEGIN_SRC R :session :results output :exports code
+  tf <- tempfile()
+  url="http://files.grouplens.org/datasets/movielens/ml-1m.zip"
+  download.file(url,tf, mode="wb") # download archived movielens data
+  files <- unzip(tf, exdir=tempdir()) # unzips and returns a vector of file names
+  ratings <- readLines(files[grepl("ratings.dat$",files)]) # read ratings.dat file
+  ratings <- gsub("::", "\t", ratings)
+  library(data.table)
+  ratings <- fread(paste(ratings, collapse="\n"), sep="\t")[,1:3]
+  colnames(ratings) = c("UserID", "MovieID", "Rating")
+#+END_SRC
+
+
+Notice that the max user ID is the same as the number of unique user IDs, indicating that all the numbers in between are accounted for in the data set. For movies, though, the max movie ID is greater than the number of movie IDs, so there are some missing.
+#+BEGIN_SRC R :session :results output :exports both
+  unique_users = unique(ratings$UserID)
+  unique_movies = unique(ratings$MovieID)
+  sprintf("number of user IDs: %d, max user ID: %d", length(unique_users), max(unique_users))
+  sprintf("number of movie IDs: %d, max movie ID: %d", length(unique_movies), max(unique_movies))
+#+END_SRC
+
+
+Now we'll generate a training and test set, randomly selecting 80% of the data for training, and the rest for testing.
+#+BEGIN_SRC R :session :results output :exports code
+  set.seed(3)
+  shuffled_indices = sample(nrow(ratings))
+  cutoff = floor(0.8*nrow(ratings))
+  train = ratings[shuffled_indices[1:cutoff]]
+  test = ratings[shuffled_indices[(cutoff+1):nrow(ratings)]]
+#+END_SRC
+
+
+To deal with the fact that there will probably be some movies in the test set not rated by anyone in the training set, and some users in the test set who don't appear in the training set, we will add to the training set a fake user who has rated every movie, and a fake movie rated by every user.
+
+The ratings will all be the overall mean rating plus a normal noise term with mean 0 and sd 0.01.
+
+#+BEGIN_SRC R :session :results output :exports code
+  num_movies = max(unique_movies)
+  fake_uids = rep((max(ratings$UserID)+1), num_movies)
+  fake_ratings = mean(ratings$Rating) + rnorm(num_movies, 0, 0.01)
+  fake_user = data.frame(UserID=fake_uids, MovieID=1:num_movies, Rating=fake_ratings)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports code
+  num_users = max(unique_users)
+  fake_mids = rep((max(ratings$MovieID)+1), num_users)
+  fake_ratings = mean(ratings$Rating) + rnorm(num_users, 0, 0.01)
+  fake_movie = data.frame(UserID=1:num_users, MovieID=fake_mids, Rating=fake_ratings)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports code
+  train = rbind(train, fake_movie, fake_user)
+#+END_SRC
+
+
+Now we'll put the data into a sparse matrix, since each user has only rated a small percentage of movies.
+#+BEGIN_SRC R :session :results output :exports both
+  library(softImpute)
+  sparse_mat = Incomplete(train$UserID, train$MovieID, train$Rating)
+#+END_SRC
+
+* Collaborative filtering
+** Preparing the data
+First, biScale will scale the rows and columns of the sparse matrix. Then lam0 will be computed as the lowest value of regularization parameter that drives all rating estimates to 0. Then we will calculate a decreasing list of lambda values to try, and create a results data frame to keep track of the lambdas and the corresponding rank and rmse. The fits list will keep the results of alternating least squares for each lambda.
+#+BEGIN_SRC R :session :results output :exports code
+  scaled_mat = biScale(sparse_mat, maxit=5, trace=TRUE)
+  lam0 = lambda0(scaled_mat)
+  lambdas = exp(seq(log(lam0), log(1), length.out=20))
+
+  results = data.frame(lambda=lambdas,
+                       rank=rep(NA_integer_, length(lambdas)),
+                       rmse=rep(NA_real_, length(lambdas)))
+
+  fits = vector(mode="list", length=length(lambdas))
+#+END_SRC
+
+** Imputation via alternating least squares
+The following will iterate over all of the lambdas, running softImpute with each and calculating the rank and RMSE for each lambda. 
+#+BEGIN_SRC R :session :results output :exports both
+  prev = NULL
+  set.seed(1)
+  for (i in 1:nrow(results)) {
+      prev = softImpute(scaled_mat,
+                        rank.max=30,
+                        lambda=results$lambda[i],
+                        maxit=1000,
+                        warm.start=prev)
+      results[i, 'rank'] = sum(abs(round(prev$d, 4)) > 0)
+      pred = impute(prev, test$UserID, test$MovieID)
+      results[i, 'rmse'] = sqrt(mean((pred - test$Rating)^2))
+      fits[[i]] = prev
+      cat(sprintf("lambda = %f\nrank = %f\nrmse = %f\n\n",
+              results[i, 'lambda'],
+              results[i, 'rank'],
+              results[i, 'rmse']))
+  }
+#+END_SRC
+
+
+Let's look at the minimum RMSE:
+#+BEGIN_SRC R :session :results output :exports both
+  results[which.min(results$rmse),]
+#+END_SRC
+
+
+As a baseline, we can look at the RMSE from setting each test prediction to the mean movie rating from the entire test set.
+#+BEGIN_SRC R :session :results output :exports both
+  pred_baseline = rep(mean(train$Rating), nrow(test))
+  sqrt(mean((pred_baseline - test$Rating)^2))
+#+END_SRC
+
+
+Let's save the best softImpute decomposition for later use.
+#+BEGIN_SRC R :session :results output :exports code
+  best_svd = fits[[which.min(results$rmse)]]
+#+END_SRC
+
+** Evaluation metrics for collaborative filtering
+Another measure of the quality of predictions is the mean absolute error,
+
+$$\mbox{MAE}(\mathbf{x}, \mathbf{y}) = \frac{1}{n}\sum_{i=1}^n\vert x_i-y_i\vert$$
+
+#+BEGIN_SRC R :session :results output :exports code
+  MAE = numeric(nrow(results))
+  for (i in 1:nrow(results)) {
+        pred = impute(fits[[i]], test$UserID, test$MovieID)
+        MAE[i] = mean(abs(pred - test$Rating))
+  }
+  results$mae = MAE
+#+END_SRC
+
+
+We can turn the predicted ratings into a classification of recommended vs not recommended by recommending those movies with predicted rating greater than the overall mean rating. Then, we can calculate the precision and recall for each model.
+#+BEGIN_SRC R :session :results output :exports code
+  precision = numeric(nrow(results))
+  recall = numeric(nrow(results))
+  for (i in 1:nrow(results)) {
+      rating_pred = impute(fits[[i]], test$UserID, test$MovieID)
+      recommend_pred = rating_pred > mean(test$Rating)
+      recommend_true = test$Rating > mean(test$Rating)
+      precision[i] = sum(recommend_pred & recommend_true) / sum(recommend_pred)
+      recall[i] = sum(recommend_pred & recommend_true) / sum(recommend_true)
+  }
+  results$precision = precision
+  results$recall = recall
+#+END_SRC
+
+
+We can look at the lambdas that maximize each of precision and recall.
+#+BEGIN_SRC R :session :results output :exports both
+  max_precision_lambda = lambdas[which.max(results$precision)]
+  max_recall_lambda = lambdas[which.max(results$recall)]
+
+  sprintf("lambda with max precision: %f", max_precision_lambda)
+  sprintf("lambda with max recall: %f", max_recall_lambda)
+#+END_SRC
+
+
+In the case of movie recommendations, it may be significantly worse to give a high rating to a movie the user turns out not to like, than vice versa. To take that into account, we can use an asymmetric cost function, which awards a higher cost to the former mistake than the latter. Here is the matrix we'll be using:
+
+#+BEGIN_SRC R :session :results output :exports both
+  cost_matrix = matrix(numeric(25), nrow=5, ncol=5)
+  cost_matrix[1,4:5] = c(7.5, 10)
+  cost_matrix[2,4:5] = c(4, 6)
+  cost_matrix[3,4:5] = c(1.5, 3)
+  cost_matrix[4,1:3] = c(3, 2, 1)
+  cost_matrix[5,1:3] = c(4, 3, 2)
+  cost_matrix
+#+END_SRC
+
+
+Now we'll add a column to results with the asymmetric cost for each model.
+
+#+BEGIN_SRC R :session :results output :exports both
+  ## returns the cost as row t, column p in cost matrix L for each t in true and p in pred
+  asymmetric_cost = function(true, pred, L) {
+      return(mean(mapply(function(t, p) L[t, p], true, pred)))
+  }
+
+  ## gets integers from 1-5 closest to each entry in v
+  put_in_range = function(v) {
+      r = round(v)
+      r = ifelse(v < 1, 1, r)
+      r = ifelse(v > 5, 5, r)
+      return(r)
+  }
+
+  asym = sapply(1:nrow(results), function(i) asymmetric_cost(test$Rating,
+                                                      put_in_range(impute(fits[[i]], test$UserID, test$MovieID)),
+                                                      cost_matrix))
+
+  results$asym = asym
+#+END_SRC
+
+
+Let's see which lambda minimizes asymmetric cost.
+#+BEGIN_SRC R :session :results output :exports both
+  lambdas[which.min(results$asym)]
+#+END_SRC
+
+* Analyzing the results
+** Collecting movie data
+Now we'll load the movies data the same way we loaded the ratings data.
+#+BEGIN_SRC R :session :results output :exports code
+  movies <- readLines(files[grepl("movies.dat$",files)])
+  movies <- gsub("::", "\t", movies)
+  movies <- fread(paste(movies, collapse="\n"), sep="\t")
+  colnames(movies) = c("MovieID", "Title", "Genre")
+#+END_SRC
+
+
+Remove the bad characters.
+#+BEGIN_SRC R :session :results output :exports both
+  movies$Genre = sapply(movies$Genre, function(g) gsub("[-']", "", g))
+#+END_SRC
+
+
+And restrict to movies that appear in the ratings data set.
+#+BEGIN_SRC R :session :results output :exports code
+  movies = movies[movies$MovieID %in% ratings$MovieID,]
+#+END_SRC
+
+
+In the movies data set, genres for each movie are represented as a string with genres separated by '|'. We'll replace those with an indicator variable for each genre that appears in the data set.
+#+BEGIN_SRC R :session :results output :exports code
+  movies$Genre = sapply(movies$Genre, function(s) strsplit(s, split='|', fixed=TRUE))
+  genres = unique(unlist(movies$Genre))
+
+  for (genre in genres) {
+      movies = cbind(movies, x=as.integer(sapply(movies$Genre, function(genre_list) genre %in% genre_list)))
+  }
+  colnames(movies)[(ncol(movies) - length(genres) + 1):ncol(movies)] = genres
+  movies$Genre = NULL
+#+END_SRC
+
+
+In the matrix V from the factorization in =best_svd=, each row corresponds to a movie ID, and each column corresponds to a computed "factor". This will add the entries of V to the movies data frame.
+#+BEGIN_SRC R :session :results output :exports code
+  movies = cbind(movies, best_svd$v[movies$MovieID,])
+#+END_SRC
+
+** Analyzing genres
+*** Analyzing the Drama genre
+First we'll look at the correlation between the drama indicator variable and the factor columns.
+#+BEGIN_SRC R :session :results output :exports both
+  library(dplyr)
+  factors = select(movies, starts_with("V"))
+  cor(movies$Drama, factors)
+#+END_SRC
+
+
+Now we'll fit an unregularized logistic regression model for the Drama variable vs the factors.
+#+BEGIN_SRC R :session :results output :exports both
+  formula = paste('Drama ~ ', do.call(paste, c(as.list(colnames(factors)), sep="+")))
+  drama_model = glm(formula, movies, family="binomial")
+  summary(drama_model)
+#+END_SRC
+
+
+We can use CVbinary to get cross-validated predictions from our model, and plot the ROC curve
+#+BEGIN_SRC R :session :file images/R2809OhW.png :results output graphics :exports both
+  library(DAAG)
+  drama_pred = CVbinary(drama_model)$cvhat
+
+  library(ROCR)
+  pred = prediction(drama_pred, movies$Drama)
+  perf = performance(pred, measure="tpr", x.measure="fpr")
+  plot(perf, colorize=TRUE)
+#+END_SRC
+
+
+Here is the area under the curve:
+#+BEGIN_SRC R :session :results output :exports both
+  performance(pred, measure="auc")@y.values
+#+END_SRC
+
+
+Now let's look at which movies the model thinks are likely to be dramas.
+#+BEGIN_SRC R :session :results output :exports both
+  drama_predictions = data.frame(title=movies$Title,
+                                 drama=movies$Drama,
+                                 prediction=drama_pred)
+  drama_predictions = drama_predictions[order(drama_pred, decreasing=TRUE),]
+
+  print("most likely dramas:")
+  head(drama_predictions, 10)
+  cat("\n")
+  print("least likely dramas:")
+  tail(drama_predictions, 10)
+#+END_SRC
+
+
+The top movies are all dramas except Shakespeare In Love. Interestingly, the model put an extremely low probability on A Christmas Story being a drama, even though it is in fact classified as a drama in our data set. However, it is not classified as a drama on IMDB, but is considered a comedy. Most of the other bottom-ranked movies appear to be comedies as well.
+
+*** Analyzing the Comedy genre
+We'll do the same analysis for Comedy as for Drama.
+#+BEGIN_SRC R :session :results output :exports both
+  genre = "Comedy"
+  factors = select(movies, starts_with("V"))
+  cor(select(movies, genre), factors)
+#+END_SRC
+
+
+Now we'll fit an unregularized logistic regression model for the Drama variable vs the factors.
+#+BEGIN_SRC R :session :results output :exports both
+  formula = paste(genre, ' ~ ', do.call(paste, c(as.list(colnames(factors)), sep="+")))
+  model = glm(formula, movies, family="binomial")
+  summary(model)
+#+END_SRC
+
+
+We can use CVbinary to get cross-validated predictions from our model, and plot the ROC curve
+#+BEGIN_SRC R :session :file images/R2809o1i.png :results output graphics :exports both
+  genre_pred = CVbinary(model)$cvhat
+
+  pred = prediction(genre_pred, select(movies, genre))
+  perf = performance(pred, measure="tpr", x.measure="fpr")
+  plot(perf, colorize=TRUE)
+#+END_SRC
+
+
+Here is the area under the curve:
+#+BEGIN_SRC R :session :results output :exports both
+  performance(pred, measure="auc")@y.values
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  predictions = data.frame(title=movies$Title,
+                           genre=select(movies, genre),
+                           prediction=genre_pred)
+  predictions = predictions[order(genre_pred, decreasing=TRUE),]
+
+  cat("most likely examples of", genre, ":\n")
+  head(predictions, 10)
+  cat("\n")
+  cat("least likely examples of", genre, ":\n")
+  tail(predictions, 10)
+#+END_SRC
+
+
+In this case, the top 10 were in all comedies and the bottom 10 all were not.
+*** Analyzing the Adventure genre
+We'll do the same analysis for Adventure.
+#+BEGIN_SRC R :session :results output :exports both
+  genre = "Adventure"
+  factors = select(movies, starts_with("V"))
+  cor(select(movies, genre), factors)
+#+END_SRC
+
+
+Fit an unregularized logistic regression model
+#+BEGIN_SRC R :session :results output :exports both
+  formula = paste(genre, ' ~ ', do.call(paste, c(as.list(colnames(factors)), sep="+")))
+  model = glm(formula, movies, family="binomial")
+  summary(model)
+#+END_SRC
+
+
+Get cross-validated predictions from our model, and plot the ROC curve
+#+BEGIN_SRC R :session :file images/R2809CKv.png :results output graphics :exports both
+  genre_pred = CVbinary(model)$cvhat
+
+  pred = prediction(genre_pred, select(movies, genre))
+  perf = performance(pred, measure="tpr", x.measure="fpr")
+  plot(perf, colorize=TRUE)
+#+END_SRC
+
+
+In this case, the high thresholds seem very concentrated in the bottom left, indicating that the false positive rate doesn't increase much until we get to very low threshold values. That seems to suggest that the probabilities are generally too low.
+
+Here is the area under the curve:
+#+BEGIN_SRC R :session :results output :exports both
+  performance(pred, measure="auc")@y.values
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  predictions = data.frame(title=movies$Title,
+                           genre=select(movies, genre),
+                           prediction=genre_pred)
+  predictions = predictions[order(genre_pred, decreasing=TRUE),]
+
+  cat("most likely examples of", genre, ":\n")
+  head(predictions, 15)
+  cat("\n")
+  cat("least likely examples of", genre, ":\n")
+  tail(predictions, 15)
+#+END_SRC
+
+
+Amusingly, the model classified Star Trek: Insurrection as an Adventure movie along with many other Star Trek movies, even though for some reason it is not classified as Adventure in our data set. It also classified E.T. as Adventure, which seems pretty reasonable. This seems like another example of the model doing better classification than whoever put together the movie database.
+
+The probabilities at the bottom are much lower than we've gotten for the other genres, consistent with the ROC curve that indicated a low threshold was necessary for good predictions.
+
+Let's look at the distribution of the predicted probabilities
+#+BEGIN_SRC R :session :file images/R2809BeE.png :results output graphics :exports both
+  library(ggplot2)
+  ggplot() + geom_density(aes(genre_pred))
+#+END_SRC
+
+
+As opposed to drama:
+#+BEGIN_SRC R :session :file images/R2809byQ.png :results output graphics :exports both
+  ggplot() + geom_density(aes(drama_pred))
+#+END_SRC
+
+
+Dramas are much more common than adventure movies, so that would tend to lower the model's estimates.
+#+BEGIN_SRC R :session :results output :exports both
+  cat("Dramas:", sum(movies$Drama), "\n")
+  cat("Adventure:", sum(movies$Adventure), "\n")
+#+END_SRC
+
+
+Let's see which adventure movies had the lowest predicted probability.
+#+BEGIN_SRC R :session :results output :exports both
+  positives = predictions[select(predictions, genre) == 1,]
+  head(positives[order(positives$prediction),], 20)
+#+END_SRC
+
+
+To be fair, based on these "Adventure" movies, it doesn't seem like Adventure is a very well-defined genre.
+*** Analyzing the Horror genre
+We'll do the same analysis for Horror as well.
+#+BEGIN_SRC R :session :results output :exports both
+  genre = "Horror"
+  factors = select(movies, starts_with("V"))
+  cor(select(movies, genre), factors)
+#+END_SRC
+
+
+Fit a logistic regression model.
+#+BEGIN_SRC R :session :results output :exports both
+  formula = paste(genre, ' ~ ', do.call(paste, c(as.list(colnames(factors)), sep="+")))
+  model = glm(formula, movies, family="binomial")
+  summary(model)
+#+END_SRC
+
+
+Get cross-validated predictions from our model, and plot the ROC curve
+#+BEGIN_SRC R :session :file images/R2809CRj.png :results output graphics :exports both
+  genre_pred = CVbinary(model)$cvhat
+
+  pred = prediction(genre_pred, select(movies, genre))
+  perf = performance(pred, measure="tpr", x.measure="fpr")
+  plot(perf, colorize=TRUE)
+#+END_SRC
+
+
+Here is the area under the curve:
+#+BEGIN_SRC R :session :results output :exports both
+  performance(pred, measure="auc")@y.values
+#+END_SRC
+
+
+This looks like the best predictions we've gotten so far.
+
+#+BEGIN_SRC R :session :results output :exports both
+  predictions = data.frame(title=movies$Title,
+                           genre=select(movies, genre),
+                           prediction=genre_pred)
+  predictions = predictions[order(genre_pred, decreasing=TRUE),]
+
+  cat("most likely examples of", genre, ":\n")
+  head(predictions, 15)
+  cat("\n")
+  cat("least likely examples of", genre, ":\n")
+  tail(predictions, 15)
+#+END_SRC
+
+
+The top movie it predicted as horror, Arachnophobia, is not actually classified as horror in this data set, but it really should be. The other top two mistakes, Aliens and Beetlejuice, are genuinely mistakes, although it's not that unreasonable to call them horror.
+** Exploring Adventure predictions
+*** Preparation
+The predicted probabilities are generally very low for Adventure movies, even among those that should be classified as Adventure. The distribution of predictions looks quite different from, say, Drama.
+
+Here's the frequency of each genre in the data set. Note that a movie may be classified with multiple genres.
+#+BEGIN_SRC R :session :results output :exports both
+  colSums(movies[,3:20])
+#+END_SRC
+
+
+Adventure movies are fairly uncommon, although there are many genres even less common. It may be that the uncommon genres tend to have similar distributions of predictions.
+
+This function will return the cross-validated predictions for each genre, based on the factors.
+#+BEGIN_SRC R :session :results output :exports code
+  predict_for_genre = function(genre, movies) {
+      factors = select(movies, starts_with("V"))
+      ## create logistic model
+      formula = paste(genre, ' ~ ', do.call(paste, c(as.list(colnames(factors)), sep="+")))
+      model = glm(formula, movies, family="binomial")
+      ## get cross-validated predictions
+      genre_pred = CVbinary(model)$cvhat
+      return(genre_pred)
+  }
+#+END_SRC
+
+
+Now we'll add the predictions for each genre to the movies data frame.
+#+BEGIN_SRC R :session :results output :exports code
+  predictions = data.frame(lapply(genres, function(genre) predict_for_genre(genre, movies)))
+  colnames(predictions) = paste(genres, "pred", sep="_")
+  movies = cbind(movies, predictions)
+#+END_SRC
+
+*** Distributions of predictions
+Let's look at the distributions of predicted probabilities for each genre, sorted by the frequency of the genre. 
+#+BEGIN_SRC R :session :file images/R40064nP.png :results output graphics :exports both
+  library(Rmisc)
+  genre_counts = sapply(genres, function(g) sum(select(movies, g)))
+  names(genre_counts) = genres
+  genre_counts = sort(genre_counts)
+
+  get_prediction_density_plot = function(genre, df, desc) {
+      genre_percent = 100*genre_counts[genre]/nrow(movies)
+      predictions = unlist(select(df, paste(genre, "pred", sep="_")))
+      return(ggplot() + geom_density(aes(predictions)) +
+             ggtitle(paste(genre, paste0("(", round(genre_percent), "%)"), paste0("(", desc, ")"))) +
+             geom_vline(xintercept=genre_percent/100))
+  }
+
+
+  plots = lapply(names(genre_counts), function(g) get_prediction_density_plot(g, movies, "all"))
+
+  multiplot(plotlist=plots, cols=3)
+#+END_SRC
+
+
+All of the uncommon genres have a sharp spike on the far left, as they should since very few movies should be classified as that genre. As the frequency of the genre increases, the distribution gets wider and shifts to the right, up to the most frequent genre, drama.
+
+But what about the distributions for the movies that actually belong to the given genre?
+#+BEGIN_SRC R :session :file images/R4006fNW.png :results output graphics :exports both
+  plots = lapply(names(genre_counts), function(g) get_prediction_density_plot(g, movies[unlist(select(movies, g)) == 1,], "true"))
+  multiplot(plotlist=plots, cols=3)
+#+END_SRC
+
+
+Or those that don't?
+#+BEGIN_SRC R :session :file images/R4006gA1.png :results output graphics :exports both
+  plots = lapply(names(genre_counts), function(g) get_prediction_density_plot(g, movies[unlist(select(movies, g)) == 0,], "false"))
+  multiplot(plotlist=plots, cols=3)
+#+END_SRC
+
+*** Accuracies
+I'd like to see what the accuracies are for each genre. For now I'll just use a threshold of 0.5 for all of them.
+
+This function will compute the accuracy of the predictions of a genre, using the specified threshold.
+#+BEGIN_SRC R :session :results output :exports code
+  compute_accuracy = function(genre, df, threshold=0.5) {
+      predictions = ifelse(select(movies, paste(genre, "pred", sep="_")) > threshold, 1, 0)
+      targets = select(df, genre)
+      return(sum(predictions==targets)/nrow(df))
+  }
+#+END_SRC
+
+
+And this one will compute the baseline accuracy for a genre (the percent of movies not belonging to the genre (or belonging to it, if that's higher)).
+#+BEGIN_SRC R :session :results output :exports code
+  compute_baseline_accuracy = function(genre) {
+      genre_percent = sum(select(movies, genre))/nrow(movies)
+      return(max(genre_percent, 1-genre_percent))
+  }
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  accuracies = sapply(names(genre_counts), function(g) compute_accuracy(g, movies))
+  baselines = sapply(names(genre_counts), function(g) compute_baseline_accuracy(g))
+  accuracy_df = data.frame(accuracies=accuracies, baselines=baselines)
+  rownames(accuracy_df) = names(genre_counts)
+  accuracy_df
+#+END_SRC
+
+
+Notice that the least frequent genres have very high accuracies, but their baseline accuracies are actually higher. These probably would do better with lower thresholds.
+
+*** Clustering
+#+BEGIN_SRC R :session :file images/R40065vK.png :results output graphics :exports both
+  dist_mat = dist(factors, method="euclidean")
+  h_clusters = hclust(dist_mat, method="ward.D2")
+  plot(h_clusters)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports code
+  library(fpc)
+  k_range = 1:15
+  k_ch = kmeansruns(factors, krange=k_range, criterion="ch")
+  k_asw = kmeansruns(factors, krange=k_range, criterion="asw")
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R4006TEX.png :results output graphics :exports both
+  library(ggplot2)
+  library(Rmisc)
+  p1 = ggplot() + geom_point(aes(k_range, k_ch$crit[k_range]), color="red") +
+      xlab("K") + ylab("clustering quality") + ggtitle("Calinski-Harabasz measure")
+  p2 = ggplot() + geom_point(aes(k_range, k_asw$crit[k_range]), color="blue") +
+      xlab("K") + ylab("clustering quality") + ggtitle("Average silhouette width measure")
+  multiplot(p1, p2)
+#+END_SRC
+
+
+8 looks like it might be an ok number of clusters.
+
+#+BEGIN_SRC R :session :results output :exports both
+  set.seed(1)
+  km = kmeans(factors, centers=17)
+  clusters = split(movies, km$cluster)
+  sapply(clusters, nrow)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  lapply(clusters, function(x) colSums(x[,3:20]))
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :file images/R40066ip.png :results output graphics :exports both
+  plot_genre_count_bars = function(df) {
+      counts = colSums(select(df, genres))
+      labels = sapply(names(select(df, genres)), function(s) substr(s, 1, 3))
+      return(ggplot() + geom_bar(aes(x=labels, y=counts, fill=genres), stat="identity")
+             + guides(fill=FALSE) +
+             xlab("genre") +
+             ylab(""))
+  }
+
+  plots = lapply(clusters, plot_genre_count_bars)
+  multiplot(plotlist=plots, cols=3)
+#+END_SRC
+
+** Collecting users data
+Now we'll load the users data
+#+BEGIN_SRC R :session :results output :exports code
+  users <- readLines(files[grepl("users.dat$",files)])
+  users <- gsub("::", "\t", users)
+  users <- fread(paste(users, collapse="\n"), sep="\t")
+  colnames(users) = c("UserID", "Sex", "Age", "Occupation", "Zip")
+#+END_SRC
+
+
+All the users in the users data set have rated movies, so no need to restrict.
+** Analyzing users
+First, we'll bind the user factors (rows of U from =best_svd=) to the users data frame, then restrict to users 35 or older and the four most common careers (excluding "other" (0) and "self-employed" (16)).
+#+BEGIN_SRC R :session :results output :exports both
+  user_factors = best_svd$u[1:length(unique_users),]
+  users = cbind(users, user_factors)
+
+  top_careers = sort(table(
+      filter(users, Age >= 35 & !(Occupation %in% c(0, 16)))$Occupation
+  ), decreasing=TRUE)[1:4]
+
+  users_top_careers = filter(users, Age >= 35 & Occupation %in% names(top_careers))
+  users_top_careers$Occupation = as.factor(users_top_careers$Occupation)
+  levels(users_top_careers$Occupation) = c("academia", "health care", "executive", "engineer")
+#+END_SRC
+
+
+We can use multinomial logistic regression to predict career in terms of the factors.
+#+BEGIN_SRC R :session :results output :exports code
+  library(glmnet)
+  features = scale(select(users_top_careers, starts_with("V")))
+  top_career_model = glmnet(features, users_top_careers$Occupation, family="multinomial")
+#+END_SRC
+
+
+Let's look at the coefficients.
+#+BEGIN_SRC R :session :file images/R40066pd.png :results output graphics :exports both
+  library(corrplot)
+  m = as.matrix(do.call(cbind, coef(top_career_model, s=0)))[-1,]
+  colnames(m) = levels(users_top_careers$Occupation)
+  corrplot(t(m), is.corr=FALSE)
+#+END_SRC
+
+
+Better yet, we can look at the principal components of the log-odds.
+#+BEGIN_SRC R :session :file images/R4006U-p.png :results output graphics :exports both
+  log_odds = predict(top_career_model, features, s=0)
+  p = prcomp(as.data.frame(log_odds), scale.=TRUE)
+  rownames(p$rotation) = levels(users_top_careers$Occupation)
+  corrplot(p$rotation, is.corr=FALSE)
+#+END_SRC
+
+
+The predictions seem to be mainly for educators/students, students/executives, and students/engineers. 
+** Estimating different careers' genre preferences
+*** Compute factor scores for genres
+Now we'll run logistic regression for each genre against the factor variables. This function is just a genralization of =predict_for_genre= from the "Exploring Adventure predictions" tree for modularity. It returns cross-validated predictions for a given column based on the given factors.
+#+BEGIN_SRC R :session :results output :exports code
+  predict_for_column = function(column, df) {
+      factors = select(df, starts_with("V"))
+      ## create logistic model
+      formula = paste(column, ' ~ ', do.call(paste, c(as.list(colnames(factors)), sep="+")))
+      model = glm(formula, df, family="binomial")
+      ## get cross-validated predictions
+      pred = CVbinary(model)$cvhat
+      return(pred)
+  }
+#+END_SRC
+
+
+We'll get these probabilities for each genre, then convert them to log odds.
+#+BEGIN_SRC R :session :results output :exports code
+  log_odds = function(p) {
+      return(log(p/(1-p)))
+  }
+
+  set.seed(1)
+  genre_predictions = data.frame(lapply(genres, function(g) log_odds(predict_for_column(g, movies))))
+  colnames(genre_predictions) = genres
+#+END_SRC
+
+
+We want to get a "vector of characteristic factors" for each genre, by multiplying each movie's log-odds of inclusion in the genre by its score for each factor, then adding up these scores for each factor. Hence we get a matrix with each row corresponding to a factor and each column corresponding to a genre.
+#+BEGIN_SRC R :session :results output :exports both
+  movie_factors = select(movies, starts_with("V"))
+  compute_score_vector = function(column, factors, predictions) {
+      inclusions = predictions[,column]
+      return(colSums(factors*inclusions))
+  }
+
+  genre_scores = sapply(genres, function(g) compute_score_vector(g, movie_factors, genre_predictions))
+#+END_SRC
+
+*** Compute factor scores for occupations
+Next, we'll create dummy indicator variables for each occupation, then get a similar score vector for these.
+#+BEGIN_SRC R :session :results output :exports code
+  library(dummies)
+  careers = sort(unique(users$Occupation))
+  users = dummy.data.frame(users, names="Occupation", sep="_")
+#+END_SRC
+
+
+Then get log-odds predictions.
+#+BEGIN_SRC R :session :results output :exports code
+  career_columns = sapply(careers, function(n) paste("Occupation", n, sep="_"))
+  set.seed(1)
+  career_predictions = data.frame(lapply(career_columns, function(o) log_odds(predict_for_column(o, users))))
+  colnames(career_predictions) = career_columns
+#+END_SRC
+
+
+And we can compute the factor scores, as for genres.
+#+BEGIN_SRC R :session :results output :exports code
+  user_factors = select(users, starts_with("V"))
+
+  career_scores = sapply(career_columns,
+         function(o) compute_score_vector(o, user_factors, career_predictions))
+#+END_SRC
+
+*** Compute genre/career scores
+If a user has factor scores $\mathbf{u} = (u_1,u_2,\ldots,u_f)$, a movie has factor scores $\mathbf{m} = (m_1,m_2,\ldots,m_f)$, and the values on the diagonal of the matrix $\mathbf{D}$ are $d_i$, then the predicted rating can be computed as
+
+$$r = \sum_{i=1}^fu_id_im_i$$
+
+We can do the same thing with careers and genres instead of users and movies, since the $d_i$s essentially represent the importance of each factor.
+#+BEGIN_SRC R :session :results output :exports code
+  pairings = matrix(nrow=length(careers), ncol=length(genres))
+  rownames(pairings) = career_columns
+  colnames(pairings) = genres
+
+  career_diag = career_scores*best_svd$d
+
+  compute_career_genre_score = function(career, genre) {
+      column = career_diag[,career]
+      return(sum(column*genre_scores[,genre]))
+  }
+
+  for (career in career_columns) {
+      for (genre in genres) {
+          pairings[career, genre] = compute_career_genre_score(career, genre)
+      }
+  }
+#+END_SRC
+
+
+Now let's visualize the results.
+#+BEGIN_SRC R :session :file images/R40067qk.png :results output graphics :exports both
+  real_career_names = c("other",
+                        "academic",
+                        "artist",
+                        "clerical",
+                        "college/grad student",
+                        "customer service",
+                        "health care",
+                        "managerial",
+                        "farmer",
+                        "homemaker",
+                        "K-12 student",
+                        "lawyer",
+                        "programmer",
+                        "retired",
+                        "sales/marketing",
+                        "scientist",
+                        "self-employed",
+                        "technician/engineer",
+                        "tradesman/craftsman",
+                        "unemployed",
+                        "writer")
+  rownames(pairings) = real_career_names
+  corrplot(pairings, is.corr=FALSE)
+#+END_SRC
+
+
+Let's scale the columns and rows of pairings to adjust for the differences in mean ratings given to each genre and the differences in mean ratings given out by members of each career.
+#+BEGIN_SRC R :session :file images/R4006V_w.png :results output graphics :exports both
+  scaled_pairings = biScale(pairings, row.scale=FALSE, col.scale=FALSE)
+  corrplot(scaled_pairings, is.corr=FALSE)
+#+END_SRC
+
+
+This generally created more contrast. Homemakers, in particular, didn't appear to have strong opinions about anything except disliking horror. After the scaling, though, They very strongly like Children's movies. That makes sense, since before scaling they were the only career that wasn't negative towards that genre.
+
+We can make the matrix look even nicer by scaling the variance as well, although that loses more information (about how different genres and careers compare with each other). I think it works as more of a ranking this way.
+#+BEGIN_SRC R :session :file images/R4006unS.png :results output graphics :exports both
+  fully_scaled_pairings = biScale(pairings)
+  corrplot(fully_scaled_pairings, is.corr=FALSE)
+#+END_SRC
+
+*** Compare to using mean ratings for each career and genre
+What if we instead just looked at the original, non-imputed data and calculated the average rating given by members of each career for each genre?  Let's see how the results compare. We can look at both the actual means and the biscaled matrix.
+#+BEGIN_SRC R :session :file images/R4006UTG.png :results output graphics :exports both
+  baseline_pairings = matrix(nrow=length(careers), ncol=length(genres))
+  rownames(baseline_pairings) = career_columns
+  colnames(baseline_pairings) = genres
+
+  for (career in career_columns) {
+      for (genre in genres) {
+          career_users = users[users[[career]] == 1,]$UserID
+          genre_movies = movies[movies[[genre]] == 1,]$MovieID
+          baseline_pairings[career, genre] =
+              mean(filter(ratings, UserID %in% career_users & MovieID %in% genre_movies)$Rating)
+      }
+  }
+
+  rownames(baseline_pairings) = real_career_names
+
+  scaled_baseline_pairings = biScale(baseline_pairings)
+
+  par(mfrow=(c(2,1)))
+  corrplot(baseline_pairings, is.corr=FALSE)
+  corrplot(scaled_baseline_pairings, is.corr=FALSE)
+#+END_SRC
+
+*** Estimate each career's specific movie preferences
+Now we'll look at specific careers, and see which movies people in that career especially like or dislike.
+
+First we'll create the full imputed matrix from the decomposition we computed earlier.
+#+BEGIN_SRC R :session :results output :exports code
+  Z = complete(Incomplete(ratings$UserID, ratings$MovieID), best_svd)
+#+END_SRC
+
+**** writers
+We'll start by analyzing writers. We already have the log-odds for each career in =career_predictions=, but let's give the rows better names.
+#+BEGIN_SRC R :session :results output :exports both
+  colnames(career_predictions) = real_career_names
+#+END_SRC
+
+
+Each row of Z corresponds to a user, and each column to a movie. We want to scale the ratings of each user by that user's log-odds of being a writer, then sum each column and divide by the sum of the log-odds to get a single rating for each movie. Since different movies have different average ratings and we want to know which movies writers especially love or hate, we will subtract the mean of each column from Z (mean rating of each movie) from each of our calculated ratings. Finally, we'll limit to the movies that actually exist.
+#+BEGIN_SRC R :session :results output :exports both
+  career = "writer"
+
+  get_career_ratings = function(career) {
+      career_ratings =
+          colSums(Z*career_predictions[, career])/sum(career_predictions[, career])
+      career_ratings = career_ratings - colMeans(Z)
+      career_ratings = career_ratings[sort(unique_movies)]
+  }
+
+  career_ratings = get_career_ratings(career)
+#+END_SRC
+
+
+Now we'll find the movies that writers especially like or dislike.
+#+BEGIN_SRC R :session :results output :exports both
+  career_prefs = select(cbind(movies, career_ratings), Title, career_ratings)
+  career_prefs = career_prefs[order(career_ratings, decreasing=TRUE),]
+  head(career_prefs, 10)
+  tail(career_prefs, 10)
+#+END_SRC
+
+
+Only the bottom 3 movies have negative ratings, indicating that writers generally rate movies more positively than others. So even for most of the movies writers like least, they still like them more than average. We can see that in the mean, which is positive.
+
+#+BEGIN_SRC R :session :results output :exports both
+  mean(career_ratings)
+#+END_SRC
+
+
+Let's write a single function to do all of this.
+#+BEGIN_SRC R :session :results output :exports code
+  get_career_analysis = function(career_code) {
+      career = real_career_names[career_code+1]
+      career_ratings = get_career_ratings(career)
+      career_prefs = select(cbind(movies, career_ratings), Title, career_ratings)
+      career_prefs = career_prefs[order(career_ratings, decreasing=TRUE),]
+  }
+#+END_SRC
+
+**** college/grad students
+Let's look at college/grad students next.
+#+BEGIN_SRC R :session :results output :exports both
+  career_analysis = get_career_analysis(5)
+  head(career_analysis, 10)
+  tail(career_analysis, 10)
+#+END_SRC
+
+
+Their mean rating is slightly negative, indicating they give somewhat lower ratings than average.
+
+#+BEGIN_SRC R :session :results output :exports both
+  mean(career_analysis$career_ratings)
+#+END_SRC
+
+**** programmer
+#+BEGIN_SRC R :session :results output :exports both
+  career_analysis = get_career_analysis(13)
+  head(career_analysis, 10)
+  tail(career_analysis, 10)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  mean(career_analysis$career_ratings)
+#+END_SRC
+
+**** farmers
+#+BEGIN_SRC R :session :results output :exports both
+  career_analysis = get_career_analysis(9)
+  head(career_analysis, 10)
+  tail(career_analysis, 10)
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  mean(career_analysis$career_ratings)
+#+END_SRC

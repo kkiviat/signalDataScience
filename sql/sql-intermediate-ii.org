@@ -1,0 +1,996 @@
+* MovieLens
+** Get the data
+Note that there were strange issues reading movies.dat into dbWriteTable, even after replacing the '::'s with tabs. Instead I had to read it into a data.frame and then write that to the db.
+#+BEGIN_SRC R :session :results output :exports both
+  ##install.packages("sqldf")
+  ##install.packages("XLConnect")
+  library(sqldf)
+  ##setwd("~/Dropbox/datascience/R-curriculum/datasets/sql-homework/ml-1m/")
+  db = dbConnect(SQLite(), "data/MovieLens.db")
+
+  ## These work, but I can't set the field names
+  ##dbWriteTable(conn=db, name="users", value="users.dat", sep=':')
+  ##dbWriteTable(conn=db, name="ratings", value="ratings.dat", sep=':')
+
+  library(data.table)
+  movies = readLines("data/movies.dat")
+  movies = gsub("::", "\t", movies)
+  movies = fread(paste(movies, collapse="\n"), sep="\t")
+  years = sapply(movies$V2, function(t) substr(t, nchar(t)-4, nchar(t)-1))
+  names(years) = NULL
+  movies$Year = years
+  colnames(movies) = c("MovieID", "Title", "Genre", "Year")
+  dbWriteTable(conn=db, name="movies", value=movies, overwrite=TRUE, row.names=FALSE)
+
+  users = readLines("data/users.dat")
+  users = gsub("::", "\t", users)
+  users = fread(paste(users, collapse="\n"), sep="\t")
+  colnames(users) = c("UserID", "Gender", "Age", "Occupation", "Zipcode")
+  dbWriteTable(conn=db, name="users", value=users, overwrite=TRUE, row.names=FALSE)
+
+  ratings = readLines("data/ratings.dat")
+  ratings = gsub("::", "\t", ratings)
+  ratings = fread(paste(ratings, collapse="\n"), sep="\t")
+  colnames(ratings) = c("UserID", "MovieID", "Rating", "Timestamp")
+  dbWriteTable(conn=db, name="ratings", value=ratings, overwrite=TRUE, row.names=FALSE)
+  dbDisconnect(db)
+#+END_SRC
+
+#+RESULTS:
+
+** Set db file
+Now using :db (print db) in the header of sqlite code blocks will set this as the database
+#+BEGIN_SRC emacs-lisp
+  (setq db "data/MovieLens.db")
+#+END_SRC
+
+#+RESULTS:
+: data/MovieLens.db
+
+** SQL queries
+*** Determine the numer of movies released in each year, omitting those with no date listed.
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Year, COUNT(Year) AS movieCount FROM movies
+  GROUP BY Year
+#+END_SRC
+
+#+RESULTS:
+| Year | movieCount |
+| 1919 |          3 |
+| 1920 |          2 |
+| 1921 |          1 |
+| 1922 |          2 |
+| 1923 |          3 |
+| 1925 |          6 |
+| 1926 |          8 |
+| 1927 |          6 |
+| 1928 |          3 |
+| 1929 |          3 |
+| 1930 |          7 |
+| 1931 |          7 |
+| 1932 |          7 |
+| 1933 |          7 |
+| 1934 |          7 |
+| 1935 |          6 |
+| 1936 |          8 |
+| 1937 |         11 |
+| 1938 |          6 |
+| 1939 |         11 |
+| 1940 |         19 |
+| 1941 |         11 |
+| 1942 |         13 |
+| 1943 |         10 |
+| 1944 |         13 |
+| 1945 |         11 |
+| 1946 |         13 |
+| 1947 |         14 |
+| 1948 |         12 |
+| 1949 |         10 |
+| 1950 |         14 |
+| 1951 |         12 |
+| 1952 |         11 |
+| 1953 |         14 |
+| 1954 |         15 |
+| 1955 |         19 |
+| 1956 |         19 |
+| 1957 |         20 |
+| 1958 |         22 |
+| 1959 |         22 |
+| 1960 |         15 |
+| 1961 |         19 |
+| 1962 |         20 |
+| 1963 |         25 |
+| 1964 |         16 |
+| 1965 |         20 |
+| 1966 |         12 |
+| 1967 |         24 |
+| 1968 |         22 |
+| 1969 |         18 |
+| 1970 |         16 |
+| 1971 |         26 |
+| 1972 |         22 |
+| 1973 |         29 |
+| 1974 |         28 |
+| 1975 |         21 |
+| 1976 |         21 |
+| 1977 |         22 |
+| 1978 |         30 |
+| 1979 |         32 |
+| 1980 |         41 |
+| 1981 |         43 |
+| 1982 |         50 |
+| 1983 |         35 |
+| 1984 |         60 |
+| 1985 |         65 |
+| 1986 |        104 |
+| 1987 |         71 |
+| 1988 |         69 |
+| 1989 |         60 |
+| 1990 |         77 |
+| 1991 |         60 |
+| 1992 |        102 |
+| 1993 |        165 |
+| 1994 |        257 |
+| 1995 |        342 |
+| 1996 |        345 |
+| 1997 |        315 |
+| 1998 |        337 |
+| 1999 |        283 |
+| 2000 |        156 |
+
+This probably was done before the end of 2000, so there are fewer movies made in that year.
+
+See what the really old movies are:
+
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT * FROM movies WHERE Year < 1925 ORDER BY Year ASC;
+#+END_SRC
+
+#+RESULTS:
+| MovieID | Title                                                       | Genre     |  Year |      |
+|    2821 | Male and Female (1919)                                      | Adventure | Drama | 1919 |
+|    2823 | Spiders, The (Die Spinnen, 1. Teil: Der Goldene See) (1919) | Action    | Drama | 1919 |
+|    3132 | Daddy Long Legs (1919)                                      | Comedy    |  1919 |      |
+|    3231 | Saphead, The (1920)                                         | Comedy    |  1920 |      |
+|    3309 | Dog's Life, A (1920)                                        | Comedy    |  1920 |      |
+|    3310 | Kid, The (1921)                                             | Action    |  1921 |      |
+|    1348 | Nosferatu (Nosferatu, eine Symphonie des Grauens) (1922)    | Horror    |  1922 |      |
+|    3195 | Tess of the Storm Country (1922)                            | Drama     |  1922 |      |
+|    2230 | Always Tell Your Wife (1923)                                | Comedy    |  1923 |      |
+|    3140 | Three Ages, The (1923)                                      | Comedy    |  1923 |      |
+|    3641 | Woman of Paris, A (1923)                                    | Drama     |  1923 |      |
+
+*** Determine the percent of movies released each year which are dramas
+Order with more recent years at the top
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Year, ROUND(100*SUM(CASE WHEN Genre LIKE '%Drama%' THEN 1 ELSE 0 END)/CAST(COUNT(*) AS Double), 2) AS percentDrama
+  FROM movies
+  GROUP BY Year
+  ORDER BY Year DESC;
+#+END_SRC
+
+#+RESULTS:
+| Year | percentDrama |
+| 2000 |        35.26 |
+| 1999 |        45.94 |
+| 1998 |        49.26 |
+| 1997 |        44.13 |
+| 1996 |        43.48 |
+| 1995 |         46.2 |
+| 1994 |        47.08 |
+| 1993 |        49.09 |
+| 1992 |        37.25 |
+| 1991 |        43.33 |
+| 1990 |        35.06 |
+| 1989 |        38.33 |
+| 1988 |        28.99 |
+| 1987 |        29.58 |
+| 1986 |        36.54 |
+| 1985 |        33.85 |
+| 1984 |        38.33 |
+| 1983 |        31.43 |
+| 1982 |         42.0 |
+| 1981 |        32.56 |
+| 1980 |         43.9 |
+| 1979 |         37.5 |
+| 1978 |        33.33 |
+| 1977 |        18.18 |
+| 1976 |         38.1 |
+| 1975 |        42.86 |
+| 1974 |        32.14 |
+| 1973 |        37.93 |
+| 1972 |        27.27 |
+| 1971 |        34.62 |
+| 1970 |         37.5 |
+| 1969 |        22.22 |
+| 1968 |        36.36 |
+| 1967 |         37.5 |
+| 1966 |        41.67 |
+| 1965 |         30.0 |
+| 1964 |         25.0 |
+| 1963 |         28.0 |
+| 1962 |         40.0 |
+| 1961 |        57.89 |
+| 1960 |        46.67 |
+| 1959 |        36.36 |
+| 1958 |        36.36 |
+| 1957 |         40.0 |
+| 1956 |        31.58 |
+| 1955 |        42.11 |
+| 1954 |        33.33 |
+| 1953 |        42.86 |
+| 1952 |        45.45 |
+| 1951 |        41.67 |
+| 1950 |        21.43 |
+| 1949 |         60.0 |
+| 1948 |        41.67 |
+| 1947 |        28.57 |
+| 1946 |        46.15 |
+| 1945 |        45.45 |
+| 1944 |        15.38 |
+| 1943 |         30.0 |
+| 1942 |        38.46 |
+| 1941 |        36.36 |
+| 1940 |        21.05 |
+| 1939 |        63.64 |
+| 1938 |        33.33 |
+| 1937 |        54.55 |
+| 1936 |         25.0 |
+| 1935 |          0.0 |
+| 1934 |        14.29 |
+| 1933 |        14.29 |
+| 1932 |        28.57 |
+| 1931 |        28.57 |
+| 1930 |        42.86 |
+| 1929 |        33.33 |
+| 1928 |          0.0 |
+| 1927 |        66.67 |
+| 1926 |         50.0 |
+| 1925 |         50.0 |
+| 1923 |        33.33 |
+| 1922 |         50.0 |
+| 1921 |          0.0 |
+| 1920 |          0.0 |
+| 1919 |        66.67 |
+
+The percent of movies being dramas sort of stabilizes in the 80's, around the same time that the number of movies per year starts to really increase. 
+*** Determine the number of movies with titles beginning with the same first letter for the 5 most frequently occurring first letters in titles
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT SUBSTR(Title, 1, 1) as firstLetter, COUNT(*) as movieCount
+  FROM movies
+  GROUP BY firstLetter
+  ORDER BY COUNT(*) DESC
+  LIMIT 5;
+#+END_SRC
+
+#+RESULTS:
+| firstLetter | movieCount |
+| S           |        401 |
+| B           |        347 |
+| M           |        304 |
+| C           |        265 |
+| T           |        233 |
+
+S and T are both in the top 5 most frequent first letters in English overall. B and C are in the top 10. M is the weirdest, being ranked only 12th overall.
+
+*** For each digit, determine the percent of users with a zip code beginning with that digit
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT SUBSTR(Zipcode, 1, 1) AS firstDigit, ROUND(100.0*COUNT(*)/(SELECT COUNT(*) FROM users), 2) AS percent
+  FROM users
+  GROUP BY firstDigit;
+#+END_SRC
+
+#+RESULTS:
+| firstDigit | percent |
+|          0 |   10.96 |
+|          1 |   10.96 |
+|          2 |     7.3 |
+|          3 |    6.39 |
+|          4 |   10.05 |
+|          5 |   10.91 |
+|          6 |    7.12 |
+|          7 |    6.94 |
+|          8 |    5.07 |
+|          9 |    24.3 |
+
+*** Find the average movie rating for users in each of the age categories
+Repeat with users of different genders or occupations.
+Age categories are:
+- 1: "Under 18"
+- 18: "18-24"
+- 25: "25-34"
+- 35: "35-44"
+- 45: "45-49"
+- 50: "50-55"
+- 56: "56+"
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Age, ROUND(AVG(Rating), 2) AS avgRating
+  FROM users JOIN ratings ON users.UserID=ratings.UserID
+  GROUP BY Age;
+#+END_SRC
+
+#+RESULTS:
+| Age | avgRating |
+|   1 |      3.55 |
+|  18 |      3.51 |
+|  25 |      3.55 |
+|  35 |      3.62 |
+|  45 |      3.64 |
+|  50 |      3.71 |
+|  56 |      3.77 |
+
+For gender:
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT Gender, ROUND(AVG(Rating), 2) AS avgRating
+  FROM users JOIN ratings ON users.UserID=ratings.UserID
+  GROUP BY Gender;
+#+END_SRC
+
+#+RESULTS:
+| Gender | avgRating |
+| F      |      3.62 |
+| M      |      3.57 |
+
+And for occupation:
+- 0:  "other" or not specified
+- 1:  "academic/educator"
+- 2:  "artist"
+- 3:  "clerical/admin"
+- 4:  "college/grad student"
+- 5:  "customer service"
+- 6:  "doctor/health care"
+- 7:  "executive/managerial"
+- 8:  "farmer"
+- 9:  "homemaker"
+- 10:  "K-12 student"
+- 11:  "lawyer"
+- 12:  "programmer"
+- 13:  "retired"
+- 14:  "sales/marketing"
+- 15:  "scientist"
+- 16:  "self-employed"
+- 17:  "technician/engineer"
+- 18:  "tradesman/craftsman"
+- 19:  "unemployed"
+- 20:  "writer"
+
+WHEN Occupation = 0 THEN  "other" or not specified
+WHEN Occupation = 1 THEN  "academic/educator"
+WHEN Occupation = 2 THEN  "artist"
+WHEN Occupation = 3 THEN  "clerical/admin"
+WHEN Occupation = 4 THEN  "college/grad student"
+WHEN Occupation = 5 THEN  "customer service"
+WHEN Occupation = 6 THEN  "doctor/health care"
+WHEN Occupation = 7 THEN  "executive/managerial"
+WHEN Occupation = 8 THEN  "farmer"
+WHEN Occupation = 9 THEN  "homemaker"
+WHEN Occupation = 10 THEN  "KWHEN12 student"
+WHEN Occupation = 11 THEN  "lawyer"
+WHEN Occupation = 12 THEN  "programmer"
+WHEN Occupation = 13 THEN  "retired"
+WHEN Occupation = 14 THEN  "sales/marketing"
+WHEN Occupation = 15 THEN  "scientist"
+WHEN Occupation = 16 THEN  "selfWHENemployed"
+WHEN Occupation = 17 THEN  "technician/engineer"
+WHEN Occupation = 18 THEN  "tradesman/craftsman"
+WHEN Occupation = 19 THEN  "unemployed"
+ELSE  "writer" END
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT (CASE WHEN Occupation = 0 THEN  "other"
+               WHEN Occupation = 1 THEN  "academic/educator"
+               WHEN Occupation = 2 THEN  "artist"
+               WHEN Occupation = 3 THEN  "clerical/admin"
+               WHEN Occupation = 4 THEN  "college/grad student"
+               WHEN Occupation = 5 THEN  "customer service"
+               WHEN Occupation = 6 THEN  "doctor/health care"
+               WHEN Occupation = 7 THEN  "executive/managerial"
+               WHEN Occupation = 8 THEN  "farmer"
+               WHEN Occupation = 9 THEN  "homemaker"
+               WHEN Occupation = 10 THEN  "KWHEN12 student"
+               WHEN Occupation = 11 THEN  "lawyer"
+               WHEN Occupation = 12 THEN  "programmer"
+               WHEN Occupation = 13 THEN  "retired"
+               WHEN Occupation = 14 THEN  "sales/marketing"
+               WHEN Occupation = 15 THEN  "scientist"
+               WHEN Occupation = 16 THEN  "selfWHENemployed"
+               WHEN Occupation = 17 THEN  "technician/engineer"
+               WHEN Occupation = 18 THEN  "tradesman/craftsman"
+               WHEN Occupation = 19 THEN  "unemployed"
+               ELSE  "writer" END) as Occupation, ROUND(AVG(Rating), 2) AS avgRating
+  FROM users JOIN ratings ON users.UserID=ratings.UserID
+  GROUP BY Occupation;
+#+END_SRC
+
+#+RESULTS:
+| Occupation           | avgRating |
+| other                |      3.54 |
+| academic/educator    |      3.58 |
+| artist               |      3.57 |
+| clerical/admin       |      3.66 |
+| college/grad student |      3.54 |
+| customer service     |      3.54 |
+| doctor/health care   |      3.66 |
+| executive/managerial |       3.6 |
+| farmer               |      3.47 |
+| homemaker            |      3.66 |
+| KWHEN12 student      |      3.53 |
+| lawyer               |      3.62 |
+| programmer           |      3.65 |
+| retired              |      3.78 |
+| sales/marketing      |      3.62 |
+| scientist            |      3.69 |
+| selfWHENemployed     |       3.6 |
+| technician/engineer  |      3.61 |
+| tradesman/craftsman  |      3.53 |
+| unemployed           |      3.41 |
+| writer               |       3.5 |
+
+*** Analyze which movies are rated highest for users of different age, sex or occupation
+Include both average rating and number of ratings.
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH genderRatings(gender, title, avg_rating, rating_count) AS (
+       SELECT Gender, Title, ROUND(AVG(rating), 2) avg_rating, COUNT(rating) rating_count
+       FROM users JOIN ratings ON (users.UserID=ratings.UserID)
+                  JOIN movies ON (ratings.MovieID=movies.MovieID)
+       GROUP BY Gender, movies.MovieID
+  )
+  SELECT *
+  FROM genderRatings r1
+  WHERE r1.avg_rating = (
+  SELECT MAX(avg_rating)
+                       FROM genderRatings r2
+                       WHERE r2.rating_count > 2
+                         AND r1.gender=r2.gender);
+#+END_SRC
+
+#+RESULTS:
+| gender | title                                       | avg_rating | rating_count |
+| F      | World of Apu, The (Apur Sansar) (1959)      |       4.84 |           19 |
+| M      | Time of the Gypsies (Dom za vesanje) (1989) |       4.83 |            6 |
+
+And for age (try looking at only movies with non-perfect ratings):
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH ageRatings(age, title, avg_rating, rating_count) AS (
+       SELECT Age, Title, ROUND(AVG(rating), 2) avg_rating, COUNT(rating) rating_count
+       FROM users JOIN ratings ON (users.UserID=ratings.UserID)
+                  JOIN movies ON (ratings.MovieID=movies.MovieID)
+       GROUP BY Age, movies.MovieID
+       HAVING rating_count > 2
+  )
+  SELECT *
+  FROM ageRatings r1
+  WHERE r1.avg_rating = (
+  SELECT MAX(avg_rating)
+                       FROM ageRatings r2
+                       WHERE r1.age=r2.age AND r2.avg_rating < 5.0);
+#+END_SRC
+
+#+RESULTS:
+| age | title                         | avg_rating | rating_count |
+|   1 | Metropolis (1926)             |       4.89 |            9 |
+|  18 | Palm Beach Story, The (1942)  |       4.83 |            6 |
+|  25 | Harmonists, The (1997)        |       4.86 |            7 |
+|  35 | In the Bleak Midwinter (1995) |       4.67 |            3 |
+|  35 | Dream With the Fishes (1997)  |       4.67 |            3 |
+|  45 | Face in the Crowd, A (1957)   |       4.75 |            8 |
+|  45 | Trouble in Paradise (1932)    |       4.75 |           12 |
+|  50 | To Live (Huozhe) (1994)       |       4.86 |            7 |
+|  56 | Carmen (1984)                 |        4.8 |            5 |
+
+And for career:
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH occupationRatings(occupation, title, avg_rating, rating_count) AS (
+       SELECT Occupation, Title, ROUND(AVG(rating), 2) avg_rating, COUNT(rating) rating_count
+       FROM users JOIN ratings ON (users.UserID=ratings.UserID)
+                  JOIN movies ON (ratings.MovieID=movies.MovieID)
+       GROUP BY Occupation, movies.MovieID
+       HAVING rating_count > 2
+  )
+  SELECT *
+  FROM occupationRatings r1
+  WHERE r1.avg_rating = (
+  SELECT MAX(avg_rating)
+                       FROM occupationRatings r2
+                       WHERE r1.occupation=r2.occupation AND r2.avg_rating < 5.0);
+#+END_SRC
+
+#+RESULTS:
+| occupation | title                                                  | avg_rating | rating_count |
+|          0 | Sanjuro (1962)                                         |       4.86 |            7 |
+|          1 | Conformist, The (Il Conformista) (1970)                |       4.83 |            6 |
+|          2 | Conformist, The (Il Conformista) (1970)                |       4.86 |            7 |
+|          3 | Raise the Red Lantern (1991)                           |        4.8 |            5 |
+|          3 | Modern Times (1936)                                    |        4.8 |            5 |
+|          4 | Sanjuro (1962)                                         |       4.86 |            7 |
+|          5 | Ghost and Mrs. Muir, The (1947)                        |        4.8 |            5 |
+|          5 | Shadow of a Doubt (1943)                               |        4.8 |            5 |
+|          6 | Fast, Cheap & Out of Control (1997)                    |       4.83 |            6 |
+|          7 | Firelight (1997)                                       |       4.75 |            4 |
+|          7 | For All Mankind (1989)                                 |       4.75 |            4 |
+|          8 | Forrest Gump (1994)                                    |       4.83 |            6 |
+|          9 | Grand Day Out, A (1992)                                |       4.83 |            6 |
+|         10 | Apocalypse Now (1979)                                  |       4.89 |           19 |
+|         11 | Casablanca (1942)                                      |       4.87 |           45 |
+|         12 | Anatomy of a Murder (1959)                             |       4.83 |            6 |
+|         13 | Much Ado About Nothing (1993)                          |        4.8 |            5 |
+|         13 | Wallace & Gromit: The Best of Aardman Animation (1996) |        4.8 |            5 |
+|         13 | Drugstore Cowboy (1989)                                |        4.8 |            5 |
+|         13 | Contender, The (2000)                                  |        4.8 |            5 |
+|         14 | All About Eve (1950)                                   |        4.8 |           10 |
+|         14 | Paris Is Burning (1990)                                |        4.8 |            5 |
+|         14 | Decline of Western Civilization, The (1981)            |        4.8 |            5 |
+|         15 | Yojimbo (1961)                                         |       4.88 |            8 |
+|         16 | Double Indemnity (1944)                                |       4.81 |           26 |
+|         17 | Citizen Ruth (1996)                                    |        4.8 |            5 |
+|         17 | My Man Godfrey (1957)                                  |        4.8 |            5 |
+|         18 | Pale Rider (1985)                                      |       4.83 |            6 |
+|         19 | Fistful of Dollars, A (1964)                           |        4.8 |            5 |
+|         20 | Circus, The (1928)                                     |       4.75 |            4 |
+
+* Thanksgiving
+
+** Get the data
+#+BEGIN_SRC sh
+  sqlite3 data/thanksgiving.db < data/thanksgiving.sql
+#+END_SRC
+
+#+RESULTS:
+
+** Set db file
+
+#+BEGIN_SRC emacs-lisp
+  (setq db "data/thanksgiving.db")
+#+END_SRC
+
+#+RESULTS:
+
+** SQL queries
+*** Compute the ticket prices for each day in November
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH prices(day, price, prev_price) AS (
+       SELECT 1, 20, 0 UNION
+       SELECT 2, 30, 20 UNION
+       SELECT 3, 40, 30 UNION
+       SELECT day+1, 5*((day+1)%7) + (price+prev_price)/2.0, price
+       FROM prices
+       WHERE day > 2 AND day < 25
+  )
+  SELECT day, '$'|| ROUND(price, 2) AS price FROM prices;
+#+END_SRC
+
+#+RESULTS:
+| day | price   |
+|   1 | $20.0   |
+|   2 | $30.0   |
+|   3 | $40.0   |
+|   4 | $55.0   |
+|   5 | $72.5   |
+|   6 | $93.75  |
+|   7 | $83.13  |
+|   8 | $93.44  |
+|   9 | $98.28  |
+|  10 | $110.86 |
+|  11 | $124.57 |
+|  12 | $142.71 |
+|  13 | $163.64 |
+|  14 | $153.18 |
+|  15 | $163.41 |
+|  16 | $168.29 |
+|  17 | $180.85 |
+|  18 | $194.57 |
+|  19 | $212.71 |
+|  20 | $233.64 |
+|  21 | $223.18 |
+|  22 | $233.41 |
+|  23 | $238.29 |
+|  24 | $250.85 |
+|  25 | $264.57 |
+
+*** Find cheapest set of flights from SFO to PDX with at most two flights
+Columns: set of airports that the flights pass through, total cost of set of flights
+Order form cheapest to most expensive
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT f1.departure||'-'||f1.arrival||'-'||f2.arrival AS airports, f1.price + f2.price AS price
+  FROM flights f1 JOIN flights f2 ON (f1.arrival=f2.departure)
+  WHERE f1.departure='SFO' AND f2.arrival='PDX'
+  UNION
+  SELECT departure||'-'||arrival AS airports, price
+  FROM flights
+  WHERE departure='SFO' AND arrival='PDX'
+  ORDER BY price ASC;
+#+END_SRC
+
+#+RESULTS:
+| airports    | price |
+| SFO-SLC-PDX |   176 |
+| SFO-LAX-PDX |   186 |
+| SFO-PDX     |   192 |
+
+*** List all possible ways to spend $60 budget on food from supermarket
+Columns:
+- comma-separated list of items ordered from least to most expensive
+- amount of budget left over
+Order in ascending order of leftover budget, then alphabetically
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH items(list, total_price, top_price, remaining_budget) AS (
+       SELECT item, price, price, 60-price FROM supermarket WHERE price <= 60
+       UNION
+       SELECT list||','||item, total_price+price, price, 60-total_price-price
+       FROM items JOIN supermarket ON price >= top_price
+       WHERE total_price+price <= 60
+  )
+  SELECT list, total_price, remaining_budget
+  FROM items
+  WHERE remaining_budget < (SELECT MIN(price) FROM supermarket)
+  ORDER BY remaining_budget ASC, list;
+#+END_SRC
+
+#+RESULTS:
+| list                                                                                            | total_price | remaining_budget |
+| CAKE!                                                                                           |          60 |                0 |
+| cornbread,cornbread,cornbread,cornbread,cornbread                                               |          60 |                0 |
+| cranberries,cranberries,cranberries,cornbread,cornbread,pumpkin pie                             |          60 |                0 |
+| cranberries,cranberries,cranberries,cranberries,cornbread,tofurky                               |          60 |                0 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,potatoes,pumpkin pie                |          60 |                0 |
+| cranberries,cranberries,cranberries,cranberries,potatoes,potatoes,cornbread                     |          60 |                0 |
+| cranberries,cranberries,potatoes,cornbread,cornbread,cornbread                                  |          60 |                0 |
+| potatoes,potatoes,potatoes,potatoes,potatoes,potatoes                                           |          60 |                0 |
+| potatoes,potatoes,potatoes,potatoes,tofurky                                                     |          60 |                0 |
+| potatoes,potatoes,potatoes,pumpkin pie,pumpkin pie                                              |          60 |                0 |
+| potatoes,potatoes,potatoes,turkey                                                               |          60 |                0 |
+| potatoes,potatoes,tofurky,tofurky                                                               |          60 |                0 |
+| potatoes,pumpkin pie,pumpkin pie,tofurky                                                        |          60 |                0 |
+| potatoes,tofurky,turkey                                                                         |          60 |                0 |
+| pumpkin pie,pumpkin pie,pumpkin pie,pumpkin pie                                                 |          60 |                0 |
+| pumpkin pie,pumpkin pie,turkey                                                                  |          60 |                0 |
+| tofurky,tofurky,tofurky                                                                         |          60 |                0 |
+| turkey,turkey                                                                                   |          60 |                0 |
+| cornbread,cornbread,pumpkin pie,tofurky                                                         |          59 |                1 |
+| cranberries,cornbread,tofurky,tofurky                                                           |          59 |                1 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,cornbread,cornbread                 |          59 |                1 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,cranberries,cranberries,potatoes    |          59 |                1 |
+| cranberries,cranberries,potatoes,potatoes,potatoes,pumpkin pie                                  |          59 |                1 |
+| cranberries,cranberries,potatoes,pumpkin pie,tofurky                                            |          59 |                1 |
+| cranberries,cranberries,pumpkin pie,pumpkin pie,pumpkin pie                                     |          59 |                1 |
+| cranberries,cranberries,pumpkin pie,turkey                                                      |          59 |                1 |
+| cranberries,potatoes,cornbread,pumpkin pie,pumpkin pie                                          |          59 |                1 |
+| cranberries,potatoes,cornbread,turkey                                                           |          59 |                1 |
+| cranberries,potatoes,potatoes,cornbread,tofurky                                                 |          59 |                1 |
+| cranberries,potatoes,potatoes,potatoes,potatoes,cornbread                                       |          59 |                1 |
+| potatoes,potatoes,cornbread,cornbread,pumpkin pie                                               |          59 |                1 |
+| cranberries,cornbread,cornbread,cornbread,pumpkin pie                                           |          58 |                2 |
+| cranberries,cranberries,cornbread,cornbread,tofurky                                             |          58 |                2 |
+| cranberries,cranberries,cranberries,cranberries,potatoes,potatoes,potatoes                      |          58 |                2 |
+| cranberries,cranberries,cranberries,cranberries,potatoes,tofurky                                |          58 |                2 |
+| cranberries,cranberries,cranberries,cranberries,pumpkin pie,pumpkin pie                         |          58 |                2 |
+| cranberries,cranberries,cranberries,cranberries,turkey                                          |          58 |                2 |
+| cranberries,cranberries,cranberries,potatoes,cornbread,pumpkin pie                              |          58 |                2 |
+| cranberries,cranberries,potatoes,potatoes,cornbread,cornbread                                   |          58 |                2 |
+| potatoes,cornbread,cornbread,cornbread,cornbread                                                |          58 |                2 |
+| cornbread,pumpkin pie,pumpkin pie,pumpkin pie                                                   |          57 |                3 |
+| cornbread,pumpkin pie,turkey                                                                    |          57 |                3 |
+| cranberries,cranberries,cranberries,cornbread,cornbread,cornbread                               |          57 |                3 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,cranberries,pumpkin pie             |          57 |                3 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,potatoes,cornbread                  |          57 |                3 |
+| cranberries,potatoes,potatoes,potatoes,potatoes,potatoes                                        |          57 |                3 |
+| cranberries,potatoes,potatoes,potatoes,tofurky                                                  |          57 |                3 |
+| cranberries,potatoes,potatoes,pumpkin pie,pumpkin pie                                           |          57 |                3 |
+| cranberries,potatoes,potatoes,turkey                                                            |          57 |                3 |
+| cranberries,potatoes,tofurky,tofurky                                                            |          57 |                3 |
+| cranberries,pumpkin pie,pumpkin pie,tofurky                                                     |          57 |                3 |
+| cranberries,tofurky,turkey                                                                      |          57 |                3 |
+| potatoes,cornbread,pumpkin pie,tofurky                                                          |          57 |                3 |
+| potatoes,potatoes,potatoes,cornbread,pumpkin pie                                                |          57 |                3 |
+| cornbread,cornbread,cornbread,tofurky                                                           |          56 |                4 |
+| cranberries,cranberries,cornbread,pumpkin pie,pumpkin pie                                       |          56 |                4 |
+| cranberries,cranberries,cornbread,turkey                                                        |          56 |                4 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,cranberries,cranberries,cranberries |          56 |                4 |
+| cranberries,cranberries,cranberries,potatoes,potatoes,pumpkin pie                               |          56 |                4 |
+| cranberries,cranberries,cranberries,pumpkin pie,tofurky                                         |          56 |                4 |
+| cranberries,cranberries,potatoes,cornbread,tofurky                                              |          56 |                4 |
+| cranberries,cranberries,potatoes,potatoes,potatoes,cornbread                                    |          56 |                4 |
+| cranberries,potatoes,cornbread,cornbread,pumpkin pie                                            |          56 |                4 |
+| potatoes,potatoes,cornbread,cornbread,cornbread                                                 |          56 |                4 |
+| cranberries,cornbread,cornbread,cornbread,cornbread                                             |          55 |                5 |
+| cranberries,cranberries,cranberries,cranberries,cornbread,pumpkin pie                           |          55 |                5 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,potatoes,potatoes                   |          55 |                5 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,tofurky                             |          55 |                5 |
+| cranberries,cranberries,cranberries,potatoes,cornbread,cornbread                                |          55 |                5 |
+| potatoes,potatoes,potatoes,potatoes,pumpkin pie                                                 |          55 |                5 |
+| potatoes,potatoes,pumpkin pie,tofurky                                                           |          55 |                5 |
+| potatoes,pumpkin pie,pumpkin pie,pumpkin pie                                                    |          55 |                5 |
+| potatoes,pumpkin pie,turkey                                                                     |          55 |                5 |
+| pumpkin pie,tofurky,tofurky                                                                     |          55 |                5 |
+| cornbread,cornbread,pumpkin pie,pumpkin pie                                                     |          54 |                6 |
+| cornbread,cornbread,turkey                                                                      |          54 |                6 |
+| cranberries,cornbread,pumpkin pie,tofurky                                                       |          54 |                6 |
+| cranberries,cranberries,cranberries,cranberries,cranberries,cranberries,cornbread               |          54 |                6 |
+| cranberries,cranberries,potatoes,potatoes,potatoes,potatoes                                     |          54 |                6 |
+| cranberries,cranberries,potatoes,potatoes,tofurky                                               |          54 |                6 |
+| cranberries,cranberries,potatoes,pumpkin pie,pumpkin pie                                        |          54 |                6 |
+| cranberries,cranberries,potatoes,turkey                                                         |          54 |                6 |
+| cranberries,cranberries,tofurky,tofurky                                                         |          54 |                6 |
+| cranberries,potatoes,potatoes,cornbread,pumpkin pie                                             |          54 |                6 |
+| potatoes,cornbread,cornbread,tofurky                                                            |          54 |                6 |
+| potatoes,potatoes,potatoes,cornbread,cornbread                                                  |          54 |                6 |
+
+Modify the query so you never pick more than 2 of any item
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH items(list, total_price, top_price, top_item, count_of_top_item, remaining_budget) AS (
+       SELECT item, price, price, item, 1, 60-price FROM supermarket WHERE price <= 60
+       UNION
+       SELECT list||','||item, total_price+price, price, item, CASE WHEN item=top_item THEN count_of_top_item+1 ELSE 1 END, 60-(total_price+price)
+       FROM items JOIN supermarket ON price >= top_price
+       WHERE total_price+price <= 60 AND (item != top_item OR count_of_top_item < 2)
+  )
+  SELECT list, total_price, remaining_budget
+  FROM items
+  /*WHERE remaining_budget < (SELECT MIN(price) FROM supermarket)*/
+  ORDER BY remaining_budget ASC, list;
+#+END_SRC
+
+#+RESULTS:
+| list                                                          | total_price | remaining_budget |
+| CAKE!                                                         |          60 |                0 |
+| potatoes,potatoes,tofurky,tofurky                             |          60 |                0 |
+| potatoes,pumpkin pie,pumpkin pie,tofurky                      |          60 |                0 |
+| potatoes,tofurky,turkey                                       |          60 |                0 |
+| pumpkin pie,pumpkin pie,turkey                                |          60 |                0 |
+| turkey,turkey                                                 |          60 |                0 |
+| cornbread,cornbread,pumpkin pie,tofurky                       |          59 |                1 |
+| cranberries,cornbread,tofurky,tofurky                         |          59 |                1 |
+| cranberries,cranberries,potatoes,pumpkin pie,tofurky          |          59 |                1 |
+| cranberries,cranberries,pumpkin pie,turkey                    |          59 |                1 |
+| cranberries,potatoes,cornbread,pumpkin pie,pumpkin pie        |          59 |                1 |
+| cranberries,potatoes,cornbread,turkey                         |          59 |                1 |
+| cranberries,potatoes,potatoes,cornbread,tofurky               |          59 |                1 |
+| potatoes,potatoes,cornbread,cornbread,pumpkin pie             |          59 |                1 |
+| cranberries,cranberries,cornbread,cornbread,tofurky           |          58 |                2 |
+| cranberries,cranberries,potatoes,potatoes,cornbread,cornbread |          58 |                2 |
+| cornbread,pumpkin pie,turkey                                  |          57 |                3 |
+| cranberries,potatoes,potatoes,pumpkin pie,pumpkin pie         |          57 |                3 |
+| cranberries,potatoes,potatoes,turkey                          |          57 |                3 |
+| cranberries,potatoes,tofurky,tofurky                          |          57 |                3 |
+| cranberries,pumpkin pie,pumpkin pie,tofurky                   |          57 |                3 |
+| cranberries,tofurky,turkey                                    |          57 |                3 |
+| potatoes,cornbread,pumpkin pie,tofurky                        |          57 |                3 |
+| cranberries,cranberries,cornbread,pumpkin pie,pumpkin pie     |          56 |                4 |
+| cranberries,cranberries,cornbread,turkey                      |          56 |                4 |
+| cranberries,cranberries,potatoes,cornbread,tofurky            |          56 |                4 |
+| cranberries,potatoes,cornbread,cornbread,pumpkin pie          |          56 |                4 |
+| potatoes,potatoes,pumpkin pie,tofurky                         |          55 |                5 |
+| potatoes,pumpkin pie,turkey                                   |          55 |                5 |
+| pumpkin pie,tofurky,tofurky                                   |          55 |                5 |
+| cornbread,cornbread,pumpkin pie,pumpkin pie                   |          54 |                6 |
+| cornbread,cornbread,turkey                                    |          54 |                6 |
+| cranberries,cornbread,pumpkin pie,tofurky                     |          54 |                6 |
+| cranberries,cranberries,potatoes,potatoes,tofurky             |          54 |                6 |
+| cranberries,cranberries,potatoes,pumpkin pie,pumpkin pie      |          54 |                6 |
+| cranberries,cranberries,potatoes,turkey                       |          54 |                6 |
+| cranberries,cranberries,tofurky,tofurky                       |          54 |                6 |
+| cranberries,potatoes,potatoes,cornbread,pumpkin pie           |          54 |                6 |
+| potatoes,cornbread,cornbread,tofurky                          |          54 |                6 |
+| cranberries,cranberries,cornbread,cornbread,pumpkin pie       |          53 |                7 |
+| cornbread,tofurky,tofurky                                     |          52 |                8 |
+| cranberries,potatoes,pumpkin pie,tofurky                      |          52 |                8 |
+| cranberries,pumpkin pie,turkey                                |          52 |                8 |
+| potatoes,cornbread,pumpkin pie,pumpkin pie                    |          52 |                8 |
+| potatoes,cornbread,turkey                                     |          52 |                8 |
+| potatoes,potatoes,cornbread,tofurky                           |          52 |                8 |
+| cranberries,cornbread,cornbread,tofurky                       |          51 |                9 |
+| cranberries,cranberries,potatoes,cornbread,pumpkin pie        |          51 |                9 |
+| cranberries,potatoes,potatoes,cornbread,cornbread             |          51 |                9 |
+| potatoes,potatoes,pumpkin pie,pumpkin pie                     |          50 |               10 |
+| potatoes,potatoes,turkey                                      |          50 |               10 |
+| potatoes,tofurky,tofurky                                      |          50 |               10 |
+| pumpkin pie,pumpkin pie,tofurky                               |          50 |               10 |
+| tofurky,turkey                                                |          50 |               10 |
+| cranberries,cornbread,pumpkin pie,pumpkin pie                 |          49 |               11 |
+| cranberries,cornbread,turkey                                  |          49 |               11 |
+| cranberries,cranberries,potatoes,potatoes,pumpkin pie         |          49 |               11 |
+| cranberries,cranberries,pumpkin pie,tofurky                   |          49 |               11 |
+| cranberries,potatoes,cornbread,tofurky                        |          49 |               11 |
+| potatoes,cornbread,cornbread,pumpkin pie                      |          49 |               11 |
+| cranberries,cranberries,potatoes,cornbread,cornbread          |          48 |               12 |
+| cornbread,pumpkin pie,tofurky                                 |          47 |               13 |
+| cranberries,potatoes,potatoes,tofurky                         |          47 |               13 |
+| cranberries,potatoes,pumpkin pie,pumpkin pie                  |          47 |               13 |
+| cranberries,potatoes,turkey                                   |          47 |               13 |
+| cranberries,tofurky,tofurky                                   |          47 |               13 |
+| potatoes,potatoes,cornbread,pumpkin pie                       |          47 |               13 |
+| cranberries,cornbread,cornbread,pumpkin pie                   |          46 |               14 |
+| cranberries,cranberries,cornbread,tofurky                     |          46 |               14 |
+| cranberries,cranberries,potatoes,potatoes,cornbread           |          46 |               14 |
+| potatoes,pumpkin pie,tofurky                                  |          45 |               15 |
+| pumpkin pie,turkey                                            |          45 |               15 |
+| cornbread,cornbread,tofurky                                   |          44 |               16 |
+| cranberries,cranberries,potatoes,tofurky                      |          44 |               16 |
+| cranberries,cranberries,pumpkin pie,pumpkin pie               |          44 |               16 |
+| cranberries,cranberries,turkey                                |          44 |               16 |
+| cranberries,potatoes,cornbread,pumpkin pie                    |          44 |               16 |
+| potatoes,potatoes,cornbread,cornbread                         |          44 |               16 |
+| cornbread,pumpkin pie,pumpkin pie                             |          42 |               18 |
+| cornbread,turkey                                              |          42 |               18 |
+| cranberries,potatoes,potatoes,pumpkin pie                     |          42 |               18 |
+| cranberries,pumpkin pie,tofurky                               |          42 |               18 |
+| potatoes,cornbread,tofurky                                    |          42 |               18 |
+| cranberries,cranberries,cornbread,pumpkin pie                 |          41 |               19 |
+| cranberries,potatoes,cornbread,cornbread                      |          41 |               19 |
+| potatoes,potatoes,tofurky                                     |          40 |               20 |
+| potatoes,pumpkin pie,pumpkin pie                              |          40 |               20 |
+| potatoes,turkey                                               |          40 |               20 |
+| tofurky,tofurky                                               |          40 |               20 |
+| cornbread,cornbread,pumpkin pie                               |          39 |               21 |
+| cranberries,cornbread,tofurky                                 |          39 |               21 |
+| cranberries,cranberries,potatoes,pumpkin pie                  |          39 |               21 |
+| cranberries,potatoes,potatoes,cornbread                       |          39 |               21 |
+| cranberries,cranberries,cornbread,cornbread                   |          38 |               22 |
+| cranberries,potatoes,tofurky                                  |          37 |               23 |
+| cranberries,pumpkin pie,pumpkin pie                           |          37 |               23 |
+| cranberries,turkey                                            |          37 |               23 |
+| potatoes,cornbread,pumpkin pie                                |          37 |               23 |
+| cranberries,cranberries,potatoes,cornbread                    |          36 |               24 |
+| potatoes,potatoes,pumpkin pie                                 |          35 |               25 |
+| pumpkin pie,tofurky                                           |          35 |               25 |
+| cranberries,cornbread,pumpkin pie                             |          34 |               26 |
+| cranberries,cranberries,potatoes,potatoes                     |          34 |               26 |
+| cranberries,cranberries,tofurky                               |          34 |               26 |
+| potatoes,cornbread,cornbread                                  |          34 |               26 |
+| cornbread,tofurky                                             |          32 |               28 |
+| cranberries,potatoes,pumpkin pie                              |          32 |               28 |
+| potatoes,potatoes,cornbread                                   |          32 |               28 |
+| cranberries,cornbread,cornbread                               |          31 |               29 |
+| potatoes,tofurky                                              |          30 |               30 |
+| pumpkin pie,pumpkin pie                                       |          30 |               30 |
+| turkey                                                        |          30 |               30 |
+| cranberries,cranberries,pumpkin pie                           |          29 |               31 |
+| cranberries,potatoes,cornbread                                |          29 |               31 |
+| cornbread,pumpkin pie                                         |          27 |               33 |
+| cranberries,potatoes,potatoes                                 |          27 |               33 |
+| cranberries,tofurky                                           |          27 |               33 |
+| cranberries,cranberries,cornbread                             |          26 |               34 |
+| potatoes,pumpkin pie                                          |          25 |               35 |
+| cornbread,cornbread                                           |          24 |               36 |
+| cranberries,cranberries,potatoes                              |          24 |               36 |
+| cranberries,pumpkin pie                                       |          22 |               38 |
+| potatoes,cornbread                                            |          22 |               38 |
+| potatoes,potatoes                                             |          20 |               40 |
+| tofurky                                                       |          20 |               40 |
+| cranberries,cornbread                                         |          19 |               41 |
+| cranberries,potatoes                                          |          17 |               43 |
+| pumpkin pie                                                   |          15 |               45 |
+| cranberries,cranberries                                       |          14 |               46 |
+| cornbread                                                     |          12 |               48 |
+| potatoes                                                      |          10 |               50 |
+| cranberries                                                   |           7 |               53 |
+
+*** Determine how many different types of meats are in the list of main courses
+#+BEGIN_SRC sqlite :db (print db) :header
+  SElECT COUNT(DISTINCT meat) AS num_meats FROM main_course;
+#+END_SRC
+
+#+RESULTS:
+| num_meats |
+|         4 |
+
+*** Count the number of full meals we can make with strictly fewer than 2500 calories total
+A full mean is a main course plus a pie.
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT COUNT(*) AS meals
+  FROM main_course JOIN pies ON main_course.calories + pies.calories < 2500;
+#+END_SRC
+
+#+RESULTS:
+| meals |
+|    22 |
+
+*** Find the lowest calorie meal with each type of meat
+Columns:
+- meat
+- total calories
+Exclude any meat that can be made into a meal with strictly more than 3000 calories.
+#+BEGIN_SRC sqlite :db (print db) :header
+  WITH meals(meat, side, pie, total_calories) AS (
+       SELECT meat, side, pie, main_course.calories + pies.calories AS total_calories
+       FROM main_course JOIN pies
+  )
+  SELECT DISTINCT meat, total_calories FROM meals m1
+  WHERE total_calories = (SELECT MIN(total_calories) FROM meals m2 WHERE m1.meat=m2.meat)
+    AND 3000 >= (SELECT MAX(total_calories) FROM meals m2 WHERE m1.meat=m2.meat);
+#+END_SRC
+
+#+RESULTS:
+| meat    | total_calories |
+| tofurky |           1400 |
+| turkey  |           1900 |
+
+Or, from solutions:
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT meat, MIN(m.calories + p.calories) as total_calories
+  FROM main_course AS m, pies AS p
+  GROUP BY meat
+  HAVING MAX(m.calories+p.calories) < 3000;
+#+END_SRC
+
+#+RESULTS:
+| meat    | total_calories |
+| tofurky |           1400 |
+| turkey  |           1900 |
+
+*** List product categories and the average price of items in each category
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT category, AVG(MSRP) FROM products GROUP BY category;
+#+END_SRC
+
+#+RESULTS:
+| category | AVG(MSRP) |
+| computer |    109.09 |
+| games    |    349.99 |
+| phone    |     89.99 |
+
+*** Create a table lowest_prices which lists items, the store that sells that item at the lowest price, and the price
+#+BEGIN_SRC sqlite :db (print db) :header
+  CREATE TABLE lowest_prices AS
+         SELECT name, store, price
+         FROM products JOIN inventory ON name=item
+         WHERE price = (SELECT MIN(price)
+                        FROM inventory i
+                        WHERE i.item=name)
+#+END_SRC
+
+*** Create a table shopping_list which lists the best value item from each category
+Best value item is the one with the lowest price/rating.
+#+BEGIN_SRC sqlite :db (print db) :header
+  CREATE TABLE shopping_list AS
+         SELECT p.category, l.name, l.store, l.price/p.rating AS value
+         FROM lowest_prices l JOIN products p ON l.name=p.name
+         WHERE l.price/p.rating = (SELECT MIN(l2.price/p2.rating)
+                                   FROM lowest_prices l2 JOIN products p2 ON l2.name=p2.name
+                                   WHERE p2.category=p.category)
+#+END_SRC
+
+#+RESULTS:
+
+Or, from solutions (using MSRP/rating, not lowest_price/rating):
+#+BEGIN_SRC sqlite :db (print db) :header
+  DROP TABLE shopping_list2;
+  CREATE TABLE shopping_list2 AS
+         WITH shopping_list_helper(name, price) AS (
+              SELECT name, MIN(MSRP/rating) FROM products GROUP BY category
+         )
+         SELECT s.name, l.store, s.price
+         FROM lowest_prices AS l, shopping_list_helper AS s
+         WHERE l.name=s.name;
+#+END_SRC
+#+RESULTS:
+
+#+BEGIN_SRC sqlite :db (print db) :header
+SELECT * FROM shopping_list;
+#+END_SRC
+
+#+RESULTS:
+| category | name        | store    |            value |
+| computer | kBook       | RestBuy  | 24.9973684210526 |
+| games    | GameStation | Hallmart |            99.66 |
+| phone    | uPhone      | RestBuy  | 19.9977777777778 |
+
+#+BEGIN_SRC sqlite :db (print db) :header
+SELECT * FROM shopping_list2;
+#+END_SRC
+
+#+RESULTS:
+| name        | store    |            price |
+| wBook       | RestBuy  |           25.975 |
+| GameStation | Hallmart | 99.9966666666667 |
+| uPhone      | RestBuy  |            22.22 |
+
+*** Calculate the total amount of bandwidth needed to buy everything on the shopping list
+
+#+BEGIN_SRC sqlite :db (print db) :header
+  SELECT SUM(MiBs)
+  FROM shopping_list JOIN stores ON shopping_list.store=stores.store
+#+END_SRC
+
+#+RESULTS:
+| SUM(MiBs) |
+|        85 |

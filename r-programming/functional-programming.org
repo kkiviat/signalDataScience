@@ -1,0 +1,257 @@
+* testing sapply
+#+BEGIN_SRC R :session :results output :exports both
+  unlist(lapply(mtcars, class))
+  sapply(mtcars, class)
+#+END_SRC
+
+#+RESULTS:
+:       mpg       cyl      disp        hp      drat        wt      qsec        vs 
+: "numeric" "numeric" "numeric" "numeric" "numeric" "numeric" "numeric" "numeric" 
+:        am      gear      carb 
+: "numeric" "numeric" "numeric"
+:       mpg       cyl      disp        hp      drat        wt      qsec        vs 
+: "numeric" "numeric" "numeric" "numeric" "numeric" "numeric" "numeric" "numeric" 
+:        am      gear      carb 
+: "numeric" "numeric" "numeric"
+
+* standardize
+#+BEGIN_SRC R :session :exports both
+  standardize_vector = function(v) {
+    return((v - mean(v))/sd(v))
+  }
+  str(data.frame(lapply(mtcars, standardize_vector)))
+  str(mtcars)
+
+  standardize_numeric_cols = function(df) {
+    numeric_cols = sapply(df, is.numeric)
+    df[numeric_cols] = lapply(df[numeric_cols], standardize_vector)
+    return(df)
+  }
+
+  df = data.frame(matrix(1:100, nrow=10)); df[1:5] = lapply(df[1:5], as.character); df
+  df = standardize_numeric_cols(df); df
+#+END_SRC
+
+#+RESULTS:
+|  1 | 11 | 21 | 31 | 41 |  -1.48630108292059 |  -1.48630108292059 |  -1.48630108292059 |  -1.48630108292059 |  -1.48630108292059 |
+|  2 | 12 | 22 | 32 | 42 |  -1.15601195338268 |  -1.15601195338268 |  -1.15601195338268 |  -1.15601195338268 |  -1.15601195338268 |
+|  3 | 13 | 23 | 33 | 43 |  -0.82572282384477 |  -0.82572282384477 |  -0.82572282384477 |  -0.82572282384477 |  -0.82572282384477 |
+|  4 | 14 | 24 | 34 | 44 | -0.495433694306862 | -0.495433694306862 | -0.495433694306862 | -0.495433694306862 | -0.495433694306862 |
+|  5 | 15 | 25 | 35 | 45 | -0.165144564768954 | -0.165144564768954 | -0.165144564768954 | -0.165144564768954 | -0.165144564768954 |
+|  6 | 16 | 26 | 36 | 46 |  0.165144564768954 |  0.165144564768954 |  0.165144564768954 |  0.165144564768954 |  0.165144564768954 |
+|  7 | 17 | 27 | 37 | 47 |  0.495433694306862 |  0.495433694306862 |  0.495433694306862 |  0.495433694306862 |  0.495433694306862 |
+|  8 | 18 | 28 | 38 | 48 |   0.82572282384477 |   0.82572282384477 |   0.82572282384477 |   0.82572282384477 |   0.82572282384477 |
+|  9 | 19 | 29 | 39 | 49 |   1.15601195338268 |   1.15601195338268 |   1.15601195338268 |   1.15601195338268 |   1.15601195338268 |
+| 10 | 20 | 30 | 40 | 50 |   1.48630108292059 |   1.48630108292059 |   1.48630108292059 |   1.48630108292059 |   1.48630108292059 |
+
+* implement lapply
+#+BEGIN_SRC R :session :results output :exports both
+  my_lapply = function(args, func) {
+    l = vector(mode="list", length(args))
+    for (i in 1:length(args)) {
+      l[i] = func(args[i])
+    }
+    return(l)
+  }
+
+  unlist(my_lapply(1:10, function (x) x^2))
+#+END_SRC
+
+#+RESULTS:
+:  [1]   1   4   9  16  25  36  49  64  81 100
+
+* subtract previous column
+#+BEGIN_SRC R :session :results output :exports both
+  subtract_previous_col = function(df) {
+    df2 = cbind(df)
+    for (i in 2:length(df)) {
+      df2[i] = df[i] - df[i-1]
+    }
+    return(df2)
+  }
+  df = data.frame(matrix(1:100, nrow=10))
+  subtract_previous_col(df)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+   X1 X2 X3 X4 X5 X6 X7 X8 X9 X10
+1   1 10 10 10 10 10 10 10 10  10
+2   2 10 10 10 10 10 10 10 10  10
+3   3 10 10 10 10 10 10 10 10  10
+4   4 10 10 10 10 10 10 10 10  10
+5   5 10 10 10 10 10 10 10 10  10
+6   6 10 10 10 10 10 10 10 10  10
+7   7 10 10 10 10 10 10 10 10  10
+8   8 10 10 10 10 10 10 10 10  10
+9   9 10 10 10 10 10 10 10 10  10
+10 10 10 10 10 10 10 10 10 10  10
+#+end_example
+
+* add numbers to column names
+append "_n" to the nth column name
+#+BEGIN_SRC R :session :results output :exports both
+  append_num = function(df) {
+      colnames(df) = mapply(function (x, n) paste(x, n, sep="_"),
+                            colnames(df), 1:length(colnames(df)))
+      return(df)
+  }
+  df = data.frame(matrix(1:100, nrow=10))
+  df = append_num(df); df
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+   X1_1 X2_2 X3_3 X4_4 X5_5 X6_6 X7_7 X8_8 X9_9 X10_10
+1     1   11   21   31   41   51   61   71   81     91
+2     2   12   22   32   42   52   62   72   82     92
+3     3   13   23   33   43   53   63   73   83     93
+4     4   14   24   34   44   54   64   74   84     94
+5     5   15   25   35   45   55   65   75   85     95
+6     6   16   26   36   46   56   66   76   86     96
+7     7   17   27   37   47   57   67   77   87     97
+8     8   18   28   38   48   58   68   78   88     98
+9     9   19   29   39   49   59   69   79   89     99
+10   10   20   30   40   50   60   70   80   90    100
+#+end_example
+
+* Map
+This function takes a list of value vectors and a list of weight vectors, and computes the weighted mean for each such pair. Ignores NA
+#+BEGIN_SRC R :session :results output :exports both
+  compute_weighted_mean = function(values, weights) {
+      return(unlist(Map(weighted.mean, values, weights, na.rm=TRUE)))
+  }
+  values = lapply(1:10, function (x) rnorm(10))
+  weights = lapply(1:10, function (x) rnorm(10))
+  print(compute_weighted_mean(values, weights))
+#+END_SRC
+
+#+RESULTS:
+:  [1] -1.3301696  0.7043133  2.3961842 -0.2931432  0.2782368 -0.4389193
+:  [7] -0.5700517  0.4942992  0.6387265  1.0051718
+
+* Reduce
+Implement sum using Reduce and +
+#+BEGIN_SRC R :session :results output :exports both
+  my_sum = function(x) {
+      return(Reduce('+', x))
+  }
+  my_sum(1:10)
+#+END_SRC
+
+#+RESULTS:
+: [1] 55
+
+Use reduce to union a list of vectors
+#+BEGIN_SRC R :session :results output :exports both
+  my_union = function(L) {
+      return(Reduce(union, L))
+  }
+  my_union(list(1:10, 2:11, 3:12))
+#+END_SRC
+
+#+RESULTS:
+:  [1]  1  2  3  4  5  6  7  8  9 10 11 12
+
+Use reduce to intersect a list of vectors (note that applying to a vector of vectors (rather than a list) worked for union, but not intersect)
+#+BEGIN_SRC R :session :results output :exports both
+  my_intersect = function(L) {
+      return(Reduce(intersect, L))
+  }
+  my_intersect(list(1:10, 2:11, 3:12))
+#+END_SRC
+
+#+RESULTS:
+: [1]  3  4  5  6  7  8  9 10
+
+Run reduce from the left and from the right, and return the answer if they agree; otherwise return NA
+#+BEGIN_SRC R :session :results output :exports both
+  symmetric_reduce = function(f, x) {
+      left = Reduce(f, x, right=FALSE)
+      right = Reduce(f, x, right=TRUE)
+      if (left == right) return(left) else return(NA)
+  }
+  symmetric_reduce('+', 1:10)
+  symmetric_reduce('/', 1:10)
+#+END_SRC
+
+#+RESULTS:
+: [1] 55
+: [1] NA
+
+Implement basic Reduce
+#+BEGIN_SRC R :session :results output :exports both
+  my_reduce = function(f, x) {
+      if (length(x) < 2) return(x)
+      
+      result = match.fun(f)(x[[1]], x[[2]])
+      for (i in 3:length(x)) {
+          result = match.fun(f)(result, x[[i]])
+      }
+      return(result)
+  }
+  my_reduce('+', 1:10)
+#+END_SRC
+
+#+RESULTS:
+: [1] 55
+
+Approximate the continued fraction $2 + \frac{1}{1+\frac{1}{2+\frac{1}{1+\frac{1}{2+\ldots}}}}$ (approx. 2.73)
+
+#+BEGIN_SRC R :session :results output :exports both
+  n = 100
+  sequence = sapply(1:n, function(x) (x %% 2) + 1)
+  Reduce(function (x, y) x + (1/y), sequence, right=TRUE)
+#+END_SRC
+
+#+RESULTS:
+: [1] 2.732051
+
+Approximate the infinitely nested radical $\sqrt{1 + 2\sqrt{1+3\sqrt{1+4\sqrt{1+\ldots}}}}$ 
+
+#+BEGIN_SRC R :session :results output :exports both
+  n = 100
+  sequence = 1:n
+  Reduce(function (x, y) x*sqrt(1 + y), sequence, right=TRUE)
+#+END_SRC
+
+#+RESULTS:
+: [1] 3
+
+* Filter
+** Any
+#+BEGIN_SRC R :session :results output :exports both
+  Any = function(L, f) {
+      return(!is.null(Find(f, L)))
+  }
+  Any(1:10, function(x) x > 2)
+  Any(1:10, function(x) x > 20)
+#+END_SRC
+
+#+RESULTS:
+: [1] TRUE
+: [1] FALSE
+** All
+#+BEGIN_SRC R :session :results output :exports both
+  All = function(L, f) {
+      return(is.null(Find(function(x) !match.fun(f)(x), L)))
+  }
+
+  All(1:10, function(x) x > 2)
+  All(1:10, function(x) x > 0)
+#+END_SRC
+
+#+RESULTS:
+: [1] FALSE
+: [1] TRUE
+
+* plotting
+#+BEGIN_SRC R :session :file images/simplePlot.png  :results output graphics :exports both
+  library(ggplot2)
+  df = data.frame(x=1:10, y=1:10)
+  ggplot(df, aes(x,y)) + geom_line()
+#+END_SRC
+
+#+RESULTS:
+[[file:images/R3809p5h.png]]
+

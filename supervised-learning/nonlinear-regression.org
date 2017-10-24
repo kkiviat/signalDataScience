@@ -1,0 +1,504 @@
+* Getting the data
+#+BEGIN_SRC R :session :results output :exports code
+  wine = read.table("../datasets/wine-quality/winequality-white.csv", sep=";", header=TRUE)
+#+END_SRC
+
+Let's plot quality against each of the other variables.
+#+BEGIN_SRC R :session :file images/R4006uuG.png :results output graphics :exports both
+  library(ggplot2)
+  library(dplyr)
+  library(Rmisc)
+
+  plots = lapply(colnames(select(wine, -quality)),
+                 function(x) qplot(wine[,x], wine$quality) + geom_smooth() + xlab(x) + ylab("quality"))
+  multiplot(plotlist=plots, cols=3)
+#+END_SRC
+
+None of these seem very strongly related to quality. Maybe chlorides and total sulfur dioxide have some nonlinear relationship with quality, while alcohol seems slightly linearly related.
+
+* Elastic net regularization
+This function will make it easy to use caret's train() function with different models.
+#+BEGIN_SRC R :session :results output :exports code
+  library(caret)
+  caret_reg = function(x, y, method, grid, ...) {
+      set.seed(1)
+      control = trainControl(method="repeatedcv", repeats=1,
+                             number=3, verboseIter=TRUE)
+      train(x=x, y=y, method=method, tuneGrid=grid,
+            trControl=control, metric="RMSE",
+            preProcess=c("center", "scale"), ...)
+  }
+#+END_SRC
+
+Let's create a data frame =results= to store a method and the RMSE obtained with that method.
+#+BEGIN_SRC R :session :results output :exports code
+  results = data.frame(method=character(), min_rmse=numeric(), stringsAsFactors=FALSE)
+
+  store_results = function(method, model) {
+      rbind(results, list(method=method, min_rmse=min(model$results$RMSE)), stringsAsFactors=FALSE)
+  }
+#+END_SRC
+
+Now we will use this function to fit an elastic net regularized linear model for wine quality.
+#+BEGIN_SRC R :session :results output :exports code
+  features = select(wine, -quality)
+  grid = expand.grid(alpha=seq(0, 1, 0.1), lambda=2^seq(1, -4, length.out=20))
+  glmnet_model = caret_reg(features, wine$quality, method="glmnet", grid=grid)
+#+END_SRC
+
+
+The best parameters are
+#+BEGIN_SRC R :session :results output :exports both
+  glmnet_model$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(glmnet_model$results$RMSE)
+#+END_SRC
+
+
+We'll save the rmse in the results data frame.
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("glmnet", glmnet_model)
+#+END_SRC
+
+* K-nearest neighbors
+For K-nearest neighbors (KNN), we start with datapoints $\mathbf{x}_i$ associated with targets $y_i$, and pick some value $k$. Then, for any new $\mathbf{x^*}$ we look at the $k$ $\mathbf{x}_i$ points closest to it and take the average of their corresponding $y_i$ targets as our prediction.
+
+We will search over $k$-values of 1:20.
+#+BEGIN_SRC R :session :results output :exports code
+  grid = expand.grid(k=1:20)
+  knn_model = caret_reg(features, wine$quality, method="knn", grid=grid)
+#+END_SRC
+
+
+The best parameter is
+#+BEGIN_SRC R :session :results output :exports both
+  knn_model$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(knn_model$results$RMSE)
+#+END_SRC
+
+
+Let's store the results.
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("knn", knn_model)
+#+END_SRC
+
+* Multivariate adaptive regression splines
+Multivariate adaptive regression splines (MARS) models the target as being a linear combination of /hinge functions/ of the form $\max(0, \pm(x_i-c))$, where $x_i$ is a predictor variable. This image shows two such functions:
+
+#+BEGIN_SRC R :session :file images/R4006VUN.png :results output graphics :exports both
+  x = seq(2, 4.5, 0.01)
+  ggplot() + geom_line(aes(x, pmax(0, 3.1-x), color="1")) +
+      geom_line(aes(x, pmax(0, x-3.1), color="2"), linetype="dashed") +
+      geom_text(aes(x=2.4, y=0.4, label="max(0, 3.1-x)", color="1")) +
+      geom_text(aes(x=3.8, y=0.4, label="max(0, x-3.1)", color="2")) +
+      theme(legend.position="none") + ylab("y") + ylim(0, 1)
+#+END_SRC
+
+
+For each predictor variable, a cut point $c$ is determined and both hinges at $c$ ($\max(0, c-x)$ and $\max(0, x-c)$) are used as predictors in the MARS model.
+
+The cut points are determined as follows:
+
+First, for each predictor, each of its data points are evaluated as cut points by building a linear model using the hinges at that cut point. The predictor/cut point combination that minimizes the model error is used. This process is repeated, with an exhaustive search over the remaining predictors and their possible cut points, but now the new hinges are added as predictors to the previously chosen ones. Again, the predictor/cut point combination that minimizes error is added to the model. This will continue until some specified stop point is reached.
+
+After this, the features are pruned until the number of features is below some specified limit, beginning with the features that contribute the least.
+
+The degree can also be increased, allowing products of these hinge functions to be included in the model. In this case, when a new pair of hinge functions is chosen, the algorithm will try multiplying these by existing features, and add the product to the model if it improves performance.
+
+The two hyperparameters for MARS are the degree and the maximum number of features. We will use the method "earth" (MARS is trademarked), and try allowing degrees from 1:5 and number of features from 10:30.
+#+BEGIN_SRC R :session :results output :exports code
+  grid = expand.grid(degree=1:5, nprune=10:30)
+  mars_model = caret_reg(features, wine$quality, method="earth", grid=grid)
+#+END_SRC
+
+
+The best parameters are
+#+BEGIN_SRC R :session :results output :exports both
+  mars_model$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(mars_model$results$RMSE)
+#+END_SRC
+
+
+Here are the coefficients of the optimal model.
+#+BEGIN_SRC R :session :results output :exports both
+  summary(mars_model$finalModel)
+#+END_SRC
+
+
+The final features include both hinges of volatile acidity, with one positive and one negative coefficient, so apparently the relationship between quality and volatile acidity always has the same direction, but the strength changes. Citric acid and free sulfur dioxide have both hinges here as well, all with negative coefficients. Hence quality increases with amount of citric acid up to a point, then decreases, and the same holds for free sulfur dioxide. Only one hinge for alcohol appears. Apparently alcohol has little relationship to quality below a certain level, then increases it.
+
+And store the results.
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("mars", mars_model)
+#+END_SRC
+
+* Decision tree methods
+** Standard regression trees
+For each split on a regression tree, the algorithm looks for the variable that will most improve prediction accuracy if used for that split. This continues until no split will improve the prediction more than some specified amount. Predictions are made by following the tree down to a terminal node, then taking the average value from the data points at that node. 
+
+The hyperparameter used for this method is the /complexity parameter/ measured in units of /impurity/. We will try using a complexity parameter over a range from $10^{-3}$ to 1.
+
+#+BEGIN_SRC R :session :results output :exports code
+  library(rpart)
+  grid = expand.grid(cp=10^seq(-3, 0, length.out=10))
+  rpart_model = caret_reg(features, wine$quality, method="rpart", grid=grid)
+#+END_SRC
+
+
+The best parameter is
+#+BEGIN_SRC R :session :results output :exports both
+  rpart_model$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(rpart_model$results$RMSE)
+#+END_SRC
+
+
+Here is the model output
+#+BEGIN_SRC R :session :results output :exports both
+  rpart_model
+#+END_SRC
+
+The NaN's for $R^2$ indicate that the model was predicting the same value for every point (making the variance 0)
+
+#+BEGIN_SRC R :session :file images/R400685T.png :results output graphics :exports both
+  library(rpart.plot)
+  prp(rpart_model$finalModel)
+#+END_SRC
+
+
+We can see the importance of each variable (basically proportional to the amount of variance in the target captured by splits made on that variable).
+#+BEGIN_SRC R :session :results output :exports both
+  rpart_model$finalModel$variable.importance
+#+END_SRC
+
+
+Alcohol is the most important variable according to this, and it is the first split. However, density is second, and the first split on density isn't until the fourth level. The things at the bottom of the list only appear as splits low on the tree, though.
+
+And let's store the results.
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("rpart", rpart_model)
+#+END_SRC
+
+** Random forests
+A random forest consists of many regression trees, each trained on a different bootstrapped sample of the original data (called /bagging/). Also, at each split of each tree, only a random subset of predictors are considered as candidates for the split. This helps keep the trees different from each other, e.g. by not allowing one very strong predictor to always be used for the same split.
+
+The only hyperparameter used here is the number of predictors that can be considered at each split. (Not the number of trees or cp?)
+
+It is generally recommended to try $\lfloor \sqrt{p}\rfloor$, $\lfloor p/3\rfloor$, and $p$, where $p$ is the number of predictors. However, in this case we will try the range 2:6, along with $p=11$.
+
+#+BEGIN_SRC R :session :results output :exports code
+  library(ranger)
+  p = ncol(features)
+  grid = expand.grid(mtry=c(2:6, p))
+  ranger_model = caret_reg(features, wine$quality, method="ranger", grid=grid, importance="impurity")
+#+END_SRC
+
+The best parameters are
+#+BEGIN_SRC R :session :results output :exports both
+  ranger_model$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(ranger_model$results$RMSE)
+#+END_SRC
+
+
+We can see the variable importance (averaged across the whole ensemble of trees).
+#+BEGIN_SRC R :session :results output :exports both
+  sort(ranger_model$finalModel$variable.importance, decreasing=TRUE)
+#+END_SRC
+
+
+And let's store the results
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("ranger", ranger_model)
+#+END_SRC
+
+
+We can also look at the /out-of-bag error/, which results from fitting each data point with only those trees that were not trained on it. This returns the mean squared error, rather than root mean squared error, so we'll take the square root of it.
+#+BEGIN_SRC R :session :results output :exports both
+  sqrt(ranger_model$finalModel$prediction.error)
+#+END_SRC
+
+** Gradient boosted trees
+Gradient boosted trees is similar to a random forest, except that it basically repeatedly trains new trees on the residuals of the predictions made by the previous ensemble, then adds them to the ensemble.
+
+The hyperparameters are
+- the number of trees (=n.trees=)
+- the learning rate (=shrinkage=), which is like a regularization parameter. It is the fraction (between 0 and 1) of the residual prediction of each iteration that is added to the total prediction
+- the minimum number of observations that must be at each node (=n.minobsinnode=)
+- the maximum depth of created trees (=interaction.depth=) (gradient boosting requires "weak learners" that won't overfit)
+#+BEGIN_SRC R :session :results output :exports code
+  library(gbm)
+  grid = expand.grid(n.trees=500,
+                     shrinkage=seq(0.01, 0.1, 0.3),
+                     interaction.depth=c(1,5,10,20,40,60),
+                     n.minobsinnode=1:3)
+  gbm_model = caret_reg(as.matrix(features), wine$quality, method="gbm", grid=grid)
+#+END_SRC
+
+
+The best parameters are
+#+BEGIN_SRC R :session :results output :exports both
+  gbm_model$bestTune
+#+END_SRC
+
+
+Now we'll use these optimal interaction depth, shrinkage, and observations/node parameters and tune the number of trees.
+#+BEGIN_SRC R :session :results output :exports code
+  grid = expand.grid(n.trees=seq(500, 5000, 100),
+                     interaction.depth=gbm_model$bestTune[["interaction.depth"]],
+                     shrinkage=gbm_model$bestTune[["shrinkage"]],
+                     n.minobsinnode=gbm_model$bestTune[["n.minobsinnode"]])
+  gbm_model_2 = caret_reg(as.matrix(features), wine$quality, method="gbm", grid=grid)
+#+END_SRC
+
+
+So now the best parameters are
+#+BEGIN_SRC R :session :results output :exports both
+  gbm_model_2$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(gbm_model_2$results$RMSE)
+#+END_SRC
+
+
+Let's store the results
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("gbm", gbm_model_2)
+#+END_SRC
+
+** Cubist
+#+BEGIN_SRC R :session :results output :exports code
+  grid = expand.grid(committees=seq(30, 50, 5), neighbors=5:9)
+  cubist_model = caret_reg(features, wine$quality, method="cubist", grid=grid)
+#+END_SRC
+
+
+The best parameters are
+#+BEGIN_SRC R :session :results output :exports both
+  cubist_model$bestTune
+#+END_SRC
+
+
+And the minimum cross-validated RMSE is
+#+BEGIN_SRC R :session :results output :exports both
+  min(cubist_model$results$RMSE)
+#+END_SRC
+
+
+Let's store the results
+#+BEGIN_SRC R :session :results output :exports code
+  results = store_results("cubist", cubist_model)
+#+END_SRC
+
+* Stacking
+** Summary so far
+Finally, we will use stacking to combine predictions from an ensemble of models.
+
+First, here are the cross-validated RMSE's from each of the methods we've tried so far:
+#+BEGIN_SRC R :session :results output :exports both
+  results
+#+END_SRC
+
+** linear stacking
+*** linear regression, MARS, regression tree
+We'll try combining elastic net linear regression, MARS, and a regression tree. Here we specify the methods to use and the control parameters.
+#+BEGIN_SRC R :session :results output :exports code
+  library(caretEnsemble)
+  ensemble_methods = c('glmnet', 'earth', 'rpart')
+  ensemble_control = trainControl(method="repeatedcv", repeats=1,
+                                  number=3, verboseIter=TRUE,
+                                  savePredictions="final")
+#+END_SRC
+
+
+Now we'll set the grids for each method.
+#+BEGIN_SRC R :session :results output :exports code
+  grid_glmnet = expand.grid(alpha=seq(0, 1, 0.1), lambda=2^seq(1, -4, length.out=20))
+  grid_mars = expand.grid(degree=1:5, nprune=10:30)
+  grid_rpart = expand.grid(cp=10^seq(-3, 0, length.out=10))
+      
+  ensemble_tunes_1 = list(
+      glmnet=caretModelSpec(method='glmnet', tuneGrid=grid_glmnet),
+      earth=caretModelSpec(method='earth', tuneGrid=grid_mars),
+      rpart=caretModelSpec(method='rpart', tuneGrid=grid_rpart)
+  )
+#+END_SRC
+
+
+Then we'll create a list of the fits produced from the train() function for each method. Note that specifying both methodList and tuneList seems to cause it to build two of each type of model.
+#+BEGIN_SRC R :session :results output :exports code
+  set.seed(1)
+  ensemble_fits_1 = caretList(features, wine$quality,
+                            trControl=ensemble_control,
+                            #methodList=ensemble_methods,
+                            tuneList=ensemble_tunes_1,
+                            preProcess=c("center", "scale"))
+#+END_SRC
+
+
+Finally, we'll get the best linear combination of the models.
+#+BEGIN_SRC R :session :results output :exports both
+  fit_ensemble_1 = caretEnsemble(ensemble_fits_1)
+  print(fit_ensemble_1)
+  summary(fit_ensemble_1)
+#+END_SRC
+
+
+Let's look at the RMSE.
+#+BEGIN_SRC R :session :results output :exports both
+  fit_ensemble_1$error['RMSE']
+#+END_SRC
+
+
+That is better than we got for any of the methods individually. What happens if we add a KNN model to the ensemble?
+*** linear regression, MARS, regression tree and KNN
+
+#+BEGIN_SRC R :session :results output :exports code
+  grid_knn = expand.grid(k=1:20)
+      
+  ensemble_tunes_2 = list(
+      glmnet=caretModelSpec(method='glmnet', tuneGrid=grid_glmnet),
+      earth=caretModelSpec(method='earth', tuneGrid=grid_mars),
+      rpart=caretModelSpec(method='rpart', tuneGrid=grid_rpart),
+      knn=caretModelSpec(method='knn', tuneGrid=grid_knn)
+  )
+
+  set.seed(1)
+  ensemble_fits_2 = caretList(features, wine$quality,
+                            trControl=ensemble_control,
+                            tuneList=ensemble_tunes_2,
+                            preProcess=c("center", "scale"))
+#+END_SRC
+
+
+#+BEGIN_SRC R :session :results output :exports both
+  fit_ensemble_2 = caretEnsemble(ensemble_fits_2)
+  print(fit_ensemble_2)
+  summary(fit_ensemble_2)
+#+END_SRC
+
+
+Let's look at the RMSE.
+#+BEGIN_SRC R :session :results output :exports both
+  fit_ensemble_2$error['RMSE']
+#+END_SRC
+
+
+This is slightly better, even though KNN on its own is worse than the previous ensemble.
+
+*** linear regression, MARS, regression tree and random forest
+
+#+BEGIN_SRC R :session :results output :exports code
+  grid_ranger = expand.grid(mtry=c(2:6, p))
+      
+  ensemble_tunes_3 = list(
+      glmnet=caretModelSpec(method='glmnet', tuneGrid=grid_glmnet),
+      earth=caretModelSpec(method='earth', tuneGrid=grid_mars),
+      rpart=caretModelSpec(method='rpart', tuneGrid=grid_rpart),
+      ranger=caretModelSpec(method='ranger', tuneGrid=grid_ranger)
+  )
+
+  set.seed(1)
+  ensemble_fits_3 = caretList(features, wine$quality,
+                            trControl=ensemble_control,
+                            tuneList=ensemble_tunes_3,
+                            preProcess=c("center", "scale"))
+#+END_SRC
+
+#+BEGIN_SRC R :session :results output :exports both
+  fit_ensemble_3 = caretEnsemble(ensemble_fits_3)
+  print(fit_ensemble_3)
+  summary(fit_ensemble_3)
+#+END_SRC
+
+
+Let's look at the RMSE.
+#+BEGIN_SRC R :session :results output :exports both
+  fit_ensemble_3$error['RMSE']
+#+END_SRC
+
+** nonlinear stacking
+Now we'll combine our ensemble of linear regression, MARS, and regression tree into a single model using a gradient boosted tree.
+#+BEGIN_SRC R :session :results output :exports code
+  fit_ensemble_gbm = caretStack(ensemble_fits_1, 'gbm')
+#+END_SRC
+
+#+BEGIN_SRC R :session :results output :exports both
+  print(fit_ensemble_gbm)
+  summary(fit_ensemble_gbm)
+#+END_SRC
+
+
+Let's look at the minimum cross-validated RMSE.
+#+BEGIN_SRC R :session :results output :exports both
+  min(fit_ensemble_gbm$error['RMSE'])
+#+END_SRC
+
+
+It is only the tiniest bit better than the linear combination.
+** putting it all together
+Finally, let's try making a stacked model using all of these techniques together.
+#+BEGIN_SRC R :session :results output :exports code
+  grid_gbm = expand.grid(n.trees=seq(500, 5000, 100),
+                         interaction.depth=gbm_model$bestTune[["interaction.depth"]],
+                         shrinkage=gbm_model$bestTune[["shrinkage"]],
+                         n.minobsinnode=gbm_model$bestTune[["n.minobsinnode"]])
+  grid_cubist = expand.grid(committees=seq(30, 50, 5), neighbors=5:9)
+        
+  ensemble_tunes_all = list(
+      glmnet=caretModelSpec(method='glmnet', tuneGrid=grid_glmnet),
+      earth=caretModelSpec(method='earth', tuneGrid=grid_mars),
+      rpart=caretModelSpec(method='rpart', tuneGrid=grid_rpart),
+      knn=caretModelSpec(method='knn', tuneGrid=grid_knn),
+      gbm=caretModelSpec(method='gbm', tuneGrid=grid_gbm),
+      cubist=caretModelSpec(method='cubist', tuneGrid=grid_cubist),
+      ranger=caretModelSpec(method='ranger', tuneGrid=grid_ranger)
+  )
+
+  set.seed(1)
+  ensemble_fits_all = caretList(features, wine$quality,
+                                trControl=ensemble_control,
+                                tuneList=ensemble_tunes_all,
+                                preProcess=c("center", "scale"))
+
+  fit_ensemble_all = caretStack(ensemble_fits_all, 'gbm')
+#+END_SRC
+
+#+BEGIN_SRC R :session :results output :exports both
+  print(fit_ensemble_all)
+  summary(fit_ensemble_all)
+#+END_SRC
+
+
+Let's look at the minimum cross-validated RMSE.
+#+BEGIN_SRC R :session :results output :exports both
+  min(fit_ensemble_all$error['RMSE'])
+#+END_SRC
+
+
+This is actually worse than the linear combination of linear regression, MARS, regression tree and random forest. Very disappointing.

@@ -1,0 +1,587 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+<title>sql-intermediate</title>
+<!-- 2017-10-24 Tue 12:55 -->
+<meta  http-equiv="Content-Type" content="text/html;charset=utf-8" />
+<meta  name="generator" content="Org-mode" />
+<meta  name="author" content="Kira" />
+<style type="text/css">
+ <!--/*--><![CDATA[/*><!--*/
+  .title  { text-align: center; }
+  .todo   { font-family: monospace; color: red; }
+  .done   { color: green; }
+  .tag    { background-color: #eee; font-family: monospace;
+            padding: 2px; font-size: 80%; font-weight: normal; }
+  .timestamp { color: #bebebe; }
+  .timestamp-kwd { color: #5f9ea0; }
+  .right  { margin-left: auto; margin-right: 0px;  text-align: right; }
+  .left   { margin-left: 0px;  margin-right: auto; text-align: left; }
+  .center { margin-left: auto; margin-right: auto; text-align: center; }
+  .underline { text-decoration: underline; }
+  #postamble p, #preamble p { font-size: 90%; margin: .2em; }
+  p.verse { margin-left: 3%; }
+  pre {
+    border: 1px solid #ccc;
+    box-shadow: 3px 3px 3px #eee;
+    padding: 8pt;
+    font-family: monospace;
+    overflow: auto;
+    margin: 1.2em;
+  }
+  pre.src {
+    position: relative;
+    overflow: visible;
+    padding-top: 1.2em;
+  }
+  pre.src:before {
+    display: none;
+    position: absolute;
+    background-color: white;
+    top: -10px;
+    right: 10px;
+    padding: 3px;
+    border: 1px solid black;
+  }
+  pre.src:hover:before { display: inline;}
+  pre.src-sh:before    { content: 'sh'; }
+  pre.src-bash:before  { content: 'sh'; }
+  pre.src-emacs-lisp:before { content: 'Emacs Lisp'; }
+  pre.src-R:before     { content: 'R'; }
+  pre.src-perl:before  { content: 'Perl'; }
+  pre.src-java:before  { content: 'Java'; }
+  pre.src-sql:before   { content: 'SQL'; }
+
+  table { border-collapse:collapse; }
+  caption.t-above { caption-side: top; }
+  caption.t-bottom { caption-side: bottom; }
+  td, th { vertical-align:top;  }
+  th.right  { text-align: center;  }
+  th.left   { text-align: center;   }
+  th.center { text-align: center; }
+  td.right  { text-align: right;  }
+  td.left   { text-align: left;   }
+  td.center { text-align: center; }
+  dt { font-weight: bold; }
+  .footpara:nth-child(2) { display: inline; }
+  .footpara { display: block; }
+  .footdef  { margin-bottom: 1em; }
+  .figure { padding: 1em; }
+  .figure p { text-align: center; }
+  .inlinetask {
+    padding: 10px;
+    border: 2px solid gray;
+    margin: 10px;
+    background: #ffffcc;
+  }
+  #org-div-home-and-up
+   { text-align: right; font-size: 70%; white-space: nowrap; }
+  textarea { overflow-x: auto; }
+  .linenr { font-size: smaller }
+  .code-highlighted { background-color: #ffff00; }
+  .org-info-js_info-navigation { border-style: none; }
+  #org-info-js_console-label
+    { font-size: 10px; font-weight: bold; white-space: nowrap; }
+  .org-info-js_search-highlight
+    { background-color: #ffff00; color: #000000; font-weight: bold; }
+  /*]]>*/-->
+</style>
+<script type="text/javascript">
+/*
+@licstart  The following is the entire license notice for the
+JavaScript code in this tag.
+
+Copyright (C) 2012-2013 Free Software Foundation, Inc.
+
+The JavaScript code in this tag is free software: you can
+redistribute it and/or modify it under the terms of the GNU
+General Public License (GNU GPL) as published by the Free Software
+Foundation, either version 3 of the License, or (at your option)
+any later version.  The code is distributed WITHOUT ANY WARRANTY;
+without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE.  See the GNU GPL for more details.
+
+As additional permission under GNU GPL version 3 section 7, you
+may distribute non-source (e.g., minimized or compacted) forms of
+that code without the copy of the GNU GPL normally required by
+section 4, provided you include this license notice and a URL
+through which recipients can access the Corresponding Source.
+
+
+@licend  The above is the entire license notice
+for the JavaScript code in this tag.
+*/
+<!--/*--><![CDATA[/*><!--*/
+ function CodeHighlightOn(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(null != target) {
+     elem.cacheClassElem = elem.className;
+     elem.cacheClassTarget = target.className;
+     target.className = "code-highlighted";
+     elem.className   = "code-highlighted";
+   }
+ }
+ function CodeHighlightOff(elem, id)
+ {
+   var target = document.getElementById(id);
+   if(elem.cacheClassElem)
+     elem.className = elem.cacheClassElem;
+   if(elem.cacheClassTarget)
+     target.className = elem.cacheClassTarget;
+ }
+/*]]>*///-->
+</script>
+</head>
+<body>
+<div id="content">
+<h1 class="title">sql-intermediate</h1>
+<div id="table-of-contents">
+<h2>Table of Contents</h2>
+<div id="text-table-of-contents">
+<ul>
+<li><a href="#sec-1">1. Company data</a>
+<ul>
+<li><a href="#sec-1-1">1.1. Get the data</a></li>
+<li><a href="#sec-1-2">1.2. Set db file</a></li>
+<li><a href="#sec-1-3">1.3. Output the names of employees that Oliver Warbucks directly supervises</a></li>
+<li><a href="#sec-1-4">1.4. Output all information about self-supervising employees</a></li>
+<li><a href="#sec-1-5">1.5. Output names of all employees with salary greater than 50000 in alphabetical order</a></li>
+<li><a href="#sec-1-6">1.6. Output table with columns: employee, salary, supervisor, supervisor&rsquo;s salary, containing all supervisors who earn more than twice as much as the employee</a></li>
+<li><a href="#sec-1-7">1.7. Output names of employees whose supervisor is in a different division</a></li>
+<li><a href="#sec-1-8">1.8. Output meeting days and times of all employees directly supervised by Oliver Warbucks</a></li>
+<li><a href="#sec-1-9">1.9. Output all names of middle managers (people who supervise someone and are supervised)</a></li>
+<li><a href="#sec-1-10">1.10. Get names of all employees who have a meeting on the same day as their supervisor</a></li>
+<li><a href="#sec-1-11">1.11. Output each supervisor and the sum of salaries of all of each supervisor&rsquo;s employees</a></li>
+<li><a href="#sec-1-12">1.12. Output all salaries that appear more than once in the employee records</a></li>
+</ul>
+</li>
+<li><a href="#sec-2">2. Recursive WITH statements</a>
+<ul>
+<li><a href="#sec-2-1">2.1. Print out the factorial of the numbers 0 to 10</a></li>
+<li><a href="#sec-2-2">2.2. Group natural numbers in 3-number-long sequences</a></li>
+</ul>
+</li>
+<li><a href="#sec-3">3. Presidential dogs</a>
+<ul>
+<li><a href="#sec-3-1">3.1. Get the data</a></li>
+<li><a href="#sec-3-2">3.2. Get names of all dogs with a parent, ordered by height of the parent from tallest to shortest</a></li>
+<li><a href="#sec-3-3">3.3. Create a single string for every pair of siblings that have the same size, where each value is a sentence describing the siblings by their size, and each sibling pair only appears once in alphabetical order</a></li>
+<li><a href="#sec-3-4">3.4. Create a table describing all stacks of 4 dogs at least 170 cm high</a></li>
+<li><a href="#sec-3-5">3.5. Get all pairs forming non-parent relations ordered by height difference, with shortest paired with tallest first, and tallest paired with shortest last.</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div id="outline-container-sec-1" class="outline-2">
+<h2 id="sec-1"><span class="section-number-2">1</span> Company data</h2>
+<div class="outline-text-2" id="text-1">
+</div><div id="outline-container-sec-1-1" class="outline-3">
+<h3 id="sec-1-1"><span class="section-number-3">1.1</span> Get the data</h3>
+<div class="outline-text-3" id="text-1-1">
+<div class="org-src-container">
+
+<pre class="src src-sh">sqlite3 data/company.db &lt; data/company.sql
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-2" class="outline-3">
+<h3 id="sec-1-2"><span class="section-number-3">1.2</span> Set db file</h3>
+<div class="outline-text-3" id="text-1-2">
+<p>
+Now using :db (print db) in the header of sqlite code blocks will set this as the database
+</p>
+<div class="org-src-container">
+
+<pre class="src src-emacs-lisp">(<span style="color: #0000FF;">setq</span> db <span style="color: #a020f0;">"data/company.db"</span>)
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-3" class="outline-3">
+<h3 id="sec-1-3"><span class="section-number-3">1.3</span> Output the names of employees that Oliver Warbucks directly supervises</h3>
+<div class="outline-text-3" id="text-1-3">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">Name</span> <span style="color: #0000FF;">FROM</span> records 
+<span style="color: #0000FF;">WHERE</span> Supervisor=<span style="color: #a020f0;">'Oliver Warbucks'</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-4" class="outline-3">
+<h3 id="sec-1-4"><span class="section-number-3">1.4</span> Output all information about self-supervising employees</h3>
+<div class="outline-text-3" id="text-1-4">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> * <span style="color: #0000FF;">FROM</span> records <span style="color: #0000FF;">WHERE</span> <span style="color: #0000FF;">Name</span>=Supervisor
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-5" class="outline-3">
+<h3 id="sec-1-5"><span class="section-number-3">1.5</span> Output names of all employees with salary greater than 50000 in alphabetical order</h3>
+<div class="outline-text-3" id="text-1-5">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">Name</span> <span style="color: #0000FF;">FROM</span> records <span style="color: #0000FF;">WHERE</span> Salary &gt; 50000 <span style="color: #0000FF;">ORDER</span> <span style="color: #0000FF;">BY</span> <span style="color: #0000FF;">Name</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-6" class="outline-3">
+<h3 id="sec-1-6"><span class="section-number-3">1.6</span> Output table with columns: employee, salary, supervisor, supervisor&rsquo;s salary, containing all supervisors who earn more than twice as much as the employee</h3>
+<div class="outline-text-3" id="text-1-6">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> e.<span style="color: #0000FF;">Name</span>, e.Salary, e.Supervisor, s.Salary
+<span style="color: #0000FF;">FROM</span> records e <span style="color: #0000FF;">JOIN</span> records s <span style="color: #0000FF;">ON</span> e.Supervisor=s.<span style="color: #0000FF;">Name</span>
+<span style="color: #0000FF;">WHERE</span> s.Salary &gt; 2*e.Salary;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-7" class="outline-3">
+<h3 id="sec-1-7"><span class="section-number-3">1.7</span> Output names of employees whose supervisor is in a different division</h3>
+<div class="outline-text-3" id="text-1-7">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> e.<span style="color: #0000FF;">Name</span>
+<span style="color: #0000FF;">FROM</span> records e <span style="color: #0000FF;">JOIN</span> records s <span style="color: #0000FF;">ON</span> e.Supervisor=s.<span style="color: #0000FF;">Name</span>
+<span style="color: #0000FF;">WHERE</span> e.Division &lt;&gt; s.Division;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-8" class="outline-3">
+<h3 id="sec-1-8"><span class="section-number-3">1.8</span> Output meeting days and times of all employees directly supervised by Oliver Warbucks</h3>
+<div class="outline-text-3" id="text-1-8">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">Day</span>, <span style="color: #6434A3;">Time</span> <span style="color: #0000FF;">FROM</span> meetings
+<span style="color: #0000FF;">WHERE</span> Division <span style="color: #0000FF;">IN</span> (<span style="color: #0000FF;">SELECT</span> Division <span style="color: #0000FF;">FROM</span> records <span style="color: #0000FF;">WHERE</span> Supervisor=<span style="color: #a020f0;">'Oliver Warbucks'</span>);
+</pre>
+</div>
+
+<p>
+or to attach names to the meetings:
+</p>
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">Name</span>, <span style="color: #0000FF;">Day</span>, <span style="color: #6434A3;">Time</span>
+<span style="color: #0000FF;">FROM</span> records r <span style="color: #0000FF;">JOIN</span> meetings <span style="color: #0000FF;">m</span> <span style="color: #0000FF;">ON</span> r.Division=<span style="color: #0000FF;">m</span>.Division
+<span style="color: #0000FF;">WHERE</span> Supervisor=<span style="color: #a020f0;">'Oliver Warbucks'</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-9" class="outline-3">
+<h3 id="sec-1-9"><span class="section-number-3">1.9</span> Output all names of middle managers (people who supervise someone and are supervised)</h3>
+<div class="outline-text-3" id="text-1-9">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">Name</span> <span style="color: #0000FF;">FROM</span> records
+<span style="color: #0000FF;">WHERE</span> <span style="color: #0000FF;">Name</span> != Supervisor
+  <span style="color: #0000FF;">AND</span> <span style="color: #0000FF;">Name</span> <span style="color: #0000FF;">IN</span> (<span style="color: #0000FF;">SELECT</span> Supervisor <span style="color: #0000FF;">FROM</span> records);
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-10" class="outline-3">
+<h3 id="sec-1-10"><span class="section-number-3">1.10</span> Get names of all employees who have a meeting on the same day as their supervisor</h3>
+<div class="outline-text-3" id="text-1-10">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">DISTINCT</span> e.<span style="color: #0000FF;">Name</span>
+<span style="color: #0000FF;">FROM</span> records e <span style="color: #0000FF;">JOIN</span> records s <span style="color: #0000FF;">ON</span> e.supervisor=s.<span style="color: #0000FF;">Name</span>
+               <span style="color: #0000FF;">JOIN</span> meetings me <span style="color: #0000FF;">ON</span> e.Division=me.Division
+               <span style="color: #0000FF;">JOIN</span> meetings ms <span style="color: #0000FF;">ON</span> s.Division=ms.Division
+<span style="color: #0000FF;">WHERE</span> me.<span style="color: #0000FF;">Day</span>=ms.<span style="color: #0000FF;">Day</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-11" class="outline-3">
+<h3 id="sec-1-11"><span class="section-number-3">1.11</span> Output each supervisor and the sum of salaries of all of each supervisor&rsquo;s employees</h3>
+<div class="outline-text-3" id="text-1-11">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> Supervisor, <span style="color: #006FE0;">SUM</span>(Salary) <span style="color: #0000FF;">FROM</span> records
+<span style="color: #0000FF;">GROUP</span> <span style="color: #0000FF;">BY</span> Supervisor;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-1-12" class="outline-3">
+<h3 id="sec-1-12"><span class="section-number-3">1.12</span> Output all salaries that appear more than once in the employee records</h3>
+<div class="outline-text-3" id="text-1-12">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> Salary <span style="color: #0000FF;">FROM</span> records
+<span style="color: #0000FF;">GROUP</span> <span style="color: #0000FF;">BY</span> Salary
+<span style="color: #0000FF;">HAVING</span> <span style="color: #006FE0;">COUNT</span>(*) &gt; 1;
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-2" class="outline-2">
+<h2 id="sec-2"><span class="section-number-2">2</span> Recursive WITH statements</h2>
+<div class="outline-text-2" id="text-2">
+</div><div id="outline-container-sec-2-1" class="outline-3">
+<h3 id="sec-2-1"><span class="section-number-3">2.1</span> Print out the factorial of the numbers 0 to 10</h3>
+<div class="outline-text-3" id="text-2-1">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">WITH</span> num(n, f) <span style="color: #0000FF;">AS</span> (
+<span style="color: #0000FF;">SELECT</span> 0, 1 <span style="color: #0000FF;">UNION</span>
+<span style="color: #0000FF;">SELECT</span> n+1, (n+1)*f <span style="color: #0000FF;">FROM</span> num <span style="color: #0000FF;">WHERE</span> n &lt;= 10
+)
+<span style="color: #0000FF;">SELECT</span> * <span style="color: #0000FF;">FROM</span> num;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-2-2" class="outline-3">
+<h3 id="sec-2-2"><span class="section-number-3">2.2</span> Group natural numbers in 3-number-long sequences</h3>
+<div class="outline-text-3" id="text-2-2">
+<p>
+Should generate this output:
+</p>
+<table border="2" cellspacing="0" cellpadding="6" rules="groups" frame="hsides">
+
+
+<colgroup>
+<col  class="right" />
+
+<col  class="right" />
+
+<col  class="right" />
+</colgroup>
+<tbody>
+<tr>
+<td class="right">0</td>
+<td class="right">1</td>
+<td class="right">2</td>
+</tr>
+
+<tr>
+<td class="right">3</td>
+<td class="right">4</td>
+<td class="right">5</td>
+</tr>
+
+<tr>
+<td class="right">6</td>
+<td class="right">7</td>
+<td class="right">8</td>
+</tr>
+
+<tr>
+<td class="right">9</td>
+<td class="right">10</td>
+<td class="right">11</td>
+</tr>
+
+<tr>
+<td class="right">12</td>
+<td class="right">13</td>
+<td class="right">14</td>
+</tr>
+</tbody>
+</table>
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">WITH</span> num(a, b, c) <span style="color: #0000FF;">AS</span> (
+<span style="color: #0000FF;">SELECT</span> 0, 1, 2 <span style="color: #0000FF;">UNION</span>
+<span style="color: #0000FF;">SELECT</span> a+3, b+3, c+3 <span style="color: #0000FF;">FROM</span> num <span style="color: #0000FF;">WHERE</span> a &lt;= 9
+)
+<span style="color: #0000FF;">SELECT</span> * <span style="color: #0000FF;">FROM</span> num;
+</pre>
+</div>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-3" class="outline-2">
+<h2 id="sec-3"><span class="section-number-2">3</span> Presidential dogs</h2>
+<div class="outline-text-2" id="text-3">
+</div><div id="outline-container-sec-3-1" class="outline-3">
+<h3 id="sec-3-1"><span class="section-number-3">3.1</span> Get the data</h3>
+<div class="outline-text-3" id="text-3-1">
+<div class="org-src-container">
+
+<pre class="src src-sh">sqlite3 data/dogs.db &lt; data/dogs.sql
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-3-2" class="outline-3">
+<h3 id="sec-3-2"><span class="section-number-3">3.2</span> Get names of all dogs with a parent, ordered by height of the parent from tallest to shortest</h3>
+<div class="outline-text-3" id="text-3-2">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> d.<span style="color: #0000FF;">name</span>
+<span style="color: #0000FF;">FROM</span> dogs d <span style="color: #0000FF;">JOIN</span> parents <span style="color: #0000FF;">ON</span> d.<span style="color: #0000FF;">name</span>=parents.child
+            <span style="color: #0000FF;">JOIN</span> dogs p <span style="color: #0000FF;">ON</span> parents.parent=p.<span style="color: #0000FF;">name</span>
+<span style="color: #0000FF;">ORDER</span> <span style="color: #0000FF;">BY</span> p.height <span style="color: #0000FF;">DESC</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-3-3" class="outline-3">
+<h3 id="sec-3-3"><span class="section-number-3">3.3</span> Create a single string for every pair of siblings that have the same size, where each value is a sentence describing the siblings by their size, and each sibling pair only appears once in alphabetical order</h3>
+<div class="outline-text-3" id="text-3-3">
+<p>
+Expected output:
+</p>
+
+<p>
+<code>barack and clinton are standard siblings</code>
+</p>
+
+<p>
+<code>abraham and grover are toy siblings</code>
+</p>
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">WITH</span> siblings <span style="color: #0000FF;">AS</span> (
+     <span style="color: #0000FF;">SELECT</span> x.child <span style="color: #0000FF;">AS</span> name1, d1.height <span style="color: #0000FF;">AS</span> height1, y.child <span style="color: #0000FF;">AS</span> name2, d2.height <span style="color: #0000FF;">AS</span> height2
+     <span style="color: #0000FF;">FROM</span> parents x <span style="color: #0000FF;">JOIN</span> parents y <span style="color: #0000FF;">ON</span> x.parent=y.parent
+                    <span style="color: #0000FF;">JOIN</span> dogs d1 <span style="color: #0000FF;">ON</span> x.child=d1.<span style="color: #0000FF;">name</span>
+                    <span style="color: #0000FF;">JOIN</span> dogs d2 <span style="color: #0000FF;">ON</span> y.child=d2.<span style="color: #0000FF;">name</span>
+     <span style="color: #0000FF;">WHERE</span> name1 &lt; name2
+)
+<span style="color: #0000FF;">SELECT</span> name1 || " <span style="color: #0000FF;">and</span> " || name2 || " <span style="color: #0000FF;">are</span> " || s1.<span style="color: #0000FF;">size</span> || " siblings"
+<span style="color: #0000FF;">FROM</span> siblings <span style="color: #0000FF;">AS</span> s <span style="color: #0000FF;">JOIN</span> sizes s1 <span style="color: #0000FF;">ON</span> (s.height1 &gt; s1.<span style="color: #006FE0;">min</span> <span style="color: #0000FF;">AND</span> s.height1 &lt;= s1.<span style="color: #006FE0;">max</span>)
+                   <span style="color: #0000FF;">JOIN</span> sizes s2 <span style="color: #0000FF;">ON</span> (s.height2 &gt; s2.<span style="color: #006FE0;">min</span> <span style="color: #0000FF;">AND</span> s.height2 &lt;= s2.<span style="color: #006FE0;">max</span>)
+<span style="color: #0000FF;">WHERE</span> s1.<span style="color: #0000FF;">size</span> = s2.<span style="color: #0000FF;">size</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-3-4" class="outline-3">
+<h3 id="sec-3-4"><span class="section-number-3">3.4</span> Create a table describing all stacks of 4 dogs at least 170 cm high</h3>
+<div class="outline-text-3" id="text-3-4">
+<p>
+The first column should contain a comma-separated list of dogs in the stack, and the second column should contain the total height of the stack. Order the stacks in increasing order of total height. A valid stack of dogs includes each dog only once, and the dogs should be listed in increasing order of height within the stack. <b>Assume no two dogs have the same height.</b>
+</p>
+
+<p>
+Expected output:
+</p>
+<div class="org-src-container">
+
+<pre class="src src-verbatim">abraham, delano, clinton, barack|171
+grover, delano, clinton, barack|173
+herbert, delano, clinton, barack|176
+fillmore, delano, clinton, barack|177
+eisenhower, delano, clinton, barack|180
+</pre>
+</div>
+
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">WITH</span> stacks4 <span style="color: #0000FF;">AS</span> (
+     <span style="color: #0000FF;">SELECT</span> d1.<span style="color: #0000FF;">name</span>||", "||
+            d2.<span style="color: #0000FF;">name</span>||", "||
+            d3.<span style="color: #0000FF;">name</span>||", "||
+            d4.<span style="color: #0000FF;">name</span> <span style="color: #0000FF;">AS</span> list, d1.height+d2.height+d3.height+d4.height <span style="color: #0000FF;">AS</span> height
+     <span style="color: #0000FF;">FROM</span> dogs d1 <span style="color: #0000FF;">JOIN</span> dogs d2 <span style="color: #0000FF;">JOIN</span> dogs d3 <span style="color: #0000FF;">JOIN</span> dogs d4
+     <span style="color: #0000FF;">WHERE</span> d1.height &lt; d2.height
+     <span style="color: #0000FF;">AND</span> d2.height &lt; d3.height
+     <span style="color: #0000FF;">AND</span> d3.height &lt; d4.height
+)
+<span style="color: #0000FF;">SELECT</span> * <span style="color: #0000FF;">FROM</span> stacks4
+<span style="color: #0000FF;">WHERE</span> height &gt;= 170
+<span style="color: #0000FF;">ORDER</span> <span style="color: #0000FF;">BY</span> height <span style="color: #0000FF;">ASC</span>;
+</pre>
+</div>
+
+<p>
+or without a WITH:
+</p>
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">SELECT</span> d1.<span style="color: #0000FF;">name</span>||", "||
+       d2.<span style="color: #0000FF;">name</span>||", "||
+       d3.<span style="color: #0000FF;">name</span>||", "||
+       d4.<span style="color: #0000FF;">name</span> <span style="color: #0000FF;">AS</span> list,                 d1.height+d2.height+d3.height+d4.height <span style="color: #0000FF;">AS</span> stack_height
+<span style="color: #0000FF;">FROM</span> dogs d1 <span style="color: #0000FF;">JOIN</span> dogs d2 <span style="color: #0000FF;">ON</span> d1.height &lt; d2.height
+             <span style="color: #0000FF;">JOIN</span> dogs d3 <span style="color: #0000FF;">ON</span> d2.height &lt; d3.height
+             <span style="color: #0000FF;">JOIN</span> dogs d4 <span style="color: #0000FF;">ON</span> d3.height &lt; d4.height
+<span style="color: #0000FF;">WHERE</span> stack_height &gt;= 170
+<span style="color: #0000FF;">ORDER</span> <span style="color: #0000FF;">BY</span> stack_height <span style="color: #0000FF;">ASC</span>;
+</pre>
+</div>
+
+<p>
+or with a recursive solution:
+</p>
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">WITH</span> stacks(list, topdogHeight, height, n) <span style="color: #0000FF;">AS</span> (
+     <span style="color: #0000FF;">SELECT</span> <span style="color: #0000FF;">name</span>, height, height, 1 <span style="color: #0000FF;">FROM</span> dogs <span style="color: #0000FF;">UNION</span>
+     <span style="color: #0000FF;">SELECT</span> s.list||", "||d.<span style="color: #0000FF;">name</span>, d.height, s.height+d.height, n+1
+     <span style="color: #0000FF;">FROM</span> stacks s <span style="color: #0000FF;">JOIN</span> dogs d <span style="color: #0000FF;">ON</span> (s.topdogHeight &lt; d.height)
+     <span style="color: #0000FF;">WHERE</span> n &lt; 4
+)
+<span style="color: #0000FF;">SELECT</span> list, height <span style="color: #0000FF;">FROM</span> stacks <span style="color: #0000FF;">WHERE</span> n = 4 <span style="color: #0000FF;">AND</span> height &gt;= 170 <span style="color: #0000FF;">ORDER</span> <span style="color: #0000FF;">BY</span> height <span style="color: #0000FF;">ASC</span>;
+</pre>
+</div>
+</div>
+</div>
+
+<div id="outline-container-sec-3-5" class="outline-3">
+<h3 id="sec-3-5"><span class="section-number-3">3.5</span> Get all pairs forming non-parent relations ordered by height difference, with shortest paired with tallest first, and tallest paired with shortest last.</h3>
+<div class="outline-text-3" id="text-3-5">
+<div class="org-src-container">
+
+<pre class="src src-sqlite"><span style="color: #0000FF;">WITH</span> relation_pairs(d1, d2, dist) <span style="color: #0000FF;">AS</span> (
+     <span style="color: #0000FF;">SELECT</span> parent, child, 1 <span style="color: #0000FF;">FROM</span> parents <span style="color: #0000FF;">UNION</span>
+     <span style="color: #0000FF;">SELECT</span> parent, d2, dist+1
+     <span style="color: #0000FF;">FROM</span> relation_pairs <span style="color: #0000FF;">JOIN</span> parents <span style="color: #0000FF;">ON</span> child=d1
+),
+all_relation_pairs(d1, d2, dist) <span style="color: #0000FF;">AS</span> (
+     <span style="color: #0000FF;">SELECT</span> d1, d2, dist <span style="color: #0000FF;">FROM</span> relation_pairs <span style="color: #0000FF;">UNION</span>
+     <span style="color: #0000FF;">SELECT</span> d2, d1, dist <span style="color: #0000FF;">FROM</span> relation_pairs
+)
+<span style="color: #0000FF;">SELECT</span> d1, d2
+<span style="color: #0000FF;">FROM</span> all_relation_pairs <span style="color: #0000FF;">JOIN</span> dogs x <span style="color: #0000FF;">ON</span> d1=x.<span style="color: #0000FF;">name</span>
+                        <span style="color: #0000FF;">JOIN</span> dogs y <span style="color: #0000FF;">ON</span> d2=y.<span style="color: #0000FF;">name</span>
+<span style="color: #0000FF;">WHERE</span> dist &gt; 1
+<span style="color: #0000FF;">ORDER</span> <span style="color: #0000FF;">BY</span> x.height-y.height;
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div id="postamble" class="status">
+<p class="author">Author: Kira</p>
+<p class="date">Created: 2017-10-24 Tue 12:55</p>
+<p class="creator"><a href="http://www.gnu.org/software/emacs/">Emacs</a> 25.2.1 (<a href="http://orgmode.org">Org</a> mode 8.2.10)</p>
+<p class="validation"><a href="http://validator.w3.org/check?uri=referer">Validate</a></p>
+</div>
+</body>
+</html>
