@@ -253,5 +253,5 @@ Approximate the infinitely nested radical $\sqrt{1 + 2\sqrt{1+3\sqrt{1+4\sqrt{1+
 #+END_SRC
 
 #+RESULTS:
-[[file:images/R3809p5h.png]]
+[[file:images/simplePlot.png]]
 
